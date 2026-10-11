@@ -13,19 +13,19 @@ interface Props {
 
 export default function Keyboard({ activeKey }: Props) {
   return (
-    <div className="flex w-full max-w-[640px] flex-col items-center gap-1.5">
+    <div className="flex w-full max-w-[800px] flex-col items-center gap-[7.5px]">
       {KEY_ROWS.map((row, rowIndex) => (
         <div
           key={row}
-          className="flex gap-1.5"
-          style={{ marginLeft: `${rowIndex * 1.1}rem` }}
+          className="flex gap-[7.5px]"
+          style={{ marginLeft: `${rowIndex * 1.375}rem` }}
         >
           {[...row].map((letter) => {
             const isActive = activeKey?.toLowerCase() === letter;
             return (
               <div
                 key={letter}
-                className={`flex h-9 w-9 items-center justify-center rounded-md border text-sm font-medium uppercase transition-colors duration-100 ${
+                className={`flex h-[45px] w-[45px] items-center justify-center rounded-md border text-[17.5px] font-medium uppercase transition-colors duration-100 ${
                   isActive
                     ? "border-yellow-400 bg-yellow-400 text-zinc-900"
                     : "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"

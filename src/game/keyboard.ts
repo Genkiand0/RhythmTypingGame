@@ -9,6 +9,9 @@ export const KEY_ROWS: readonly string[] = ["qwertyuiop", "asdfghjkl", "zxcvbnm"
 /** How many key-widths wide the keyboard is, based on the longest row. */
 const COLUMN_COUNT = KEY_ROWS[0].length;
 
+/** How wide a single key is, as a fraction of the keyboard's total width. */
+export const KEY_WIDTH_FRACTION = 1 / COLUMN_COUNT;
+
 /** How far each row is shifted right, in key-widths, like a real keyboard's stagger. */
 const ROW_OFFSETS: readonly number[] = [0, 0.5, 1];
 
