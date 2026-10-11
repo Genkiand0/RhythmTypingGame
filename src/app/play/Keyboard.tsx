@@ -1,10 +1,17 @@
 "use client";
 
-// A letters-only on-screen keyboard. Purely a display of state passed in —
-// it doesn't know about typing, judgments, or the game loop. The parent
-// tells it which key (if any) was just pressed, and for how long to glow.
+// A letters-only on-screen keyboard, drawn as an overlay directly inside
+// the playfield (not below it), so a note's landing spot and the real key
+// underneath are the same pixels. Purely a display of state passed in —
+// it doesn't know about typing, judgments, or the game loop. Position and
+// color both come from the same shared layout the canvas renderer uses
+// (playfield.ts / keyboard.ts), so the two can never drift apart.
 
-import { KEY_ROWS } from "@/game/keyboard";
+import { KEY_ROWS, colorForRow } from "@/game/keyboard";
+import { getKeySlot, CANVAS_WIDTH, CANVAS_HEIGHT } from "@/game/playfield";
+
+const KEY_GAP_PX = 4;
+const PRESSED_COLOR = "#facc15";
 
 interface Props {
   /** The most recently typed letter, or null if nothing's lit up right now. */
@@ -13,30 +20,36 @@ interface Props {
 
 export default function Keyboard({ activeKey }: Props) {
   return (
-    <div className="flex w-full max-w-[800px] flex-col items-center gap-[7.5px]">
-      {KEY_ROWS.map((row, rowIndex) => (
-        <div
-          key={row}
-          className="flex gap-[7.5px]"
-          style={{ marginLeft: `${rowIndex * 1.375}rem` }}
-        >
-          {[...row].map((letter) => {
-            const isActive = activeKey?.toLowerCase() === letter;
-            return (
-              <div
-                key={letter}
-                className={`flex h-[45px] w-[45px] items-center justify-center rounded-md border text-[17.5px] font-medium uppercase transition-colors duration-100 ${
-                  isActive
-                    ? "border-yellow-400 bg-yellow-400 text-zinc-900"
-                    : "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                }`}
-              >
-                {letter}
-              </div>
-            );
-          })}
-        </div>
-      ))}
+    <div className="pointer-events-none absolute inset-0">
+      {KEY_ROWS.flatMap((row) => [...row]).map((letter) => {
+        const slot = getKeySlot(letter);
+        if (!slot) return null;
+
+        const isActive = activeKey?.toLowerCase() === letter;
+        const left = slot.leftFraction * CANVAS_WIDTH;
+        const top = slot.rowTopFraction * CANVAS_HEIGHT;
+        const width = (slot.rightFraction - slot.leftFraction) * CANVAS_WIDTH;
+        const height = (slot.rowBottomFraction - slot.rowTopFraction) * CANVAS_HEIGHT;
+        const color = isActive ? PRESSED_COLOR : colorForRow(slot.row);
+
+        return (
+          <div
+            key={letter}
+            className="absolute flex items-center justify-center rounded-md border text-[17.5px] font-semibold uppercase text-zinc-900 transition-[opacity,background-color,border-color] duration-100"
+            style={{
+              left: left + KEY_GAP_PX / 2,
+              top: top + KEY_GAP_PX / 2,
+              width: width - KEY_GAP_PX,
+              height: height - KEY_GAP_PX,
+              backgroundColor: color,
+              borderColor: color,
+              opacity: isActive ? 1 : 0.55,
+            }}
+          >
+            {letter}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getLane, laneEdgesAt, DISTANT_KEYBOARD_SCALE } from "./lanes";
-import { getKeyPosition, KEY_WIDTH_FRACTION } from "./keyboard";
+import { getLane, laneEdgesAt, laneYAt, DISTANT_KEYBOARD_SCALE } from "./lanes";
+import { getKeySlot, LANE_SPAWN_Y_FRACTION } from "./playfield";
 
 describe("getLane", () => {
   it("returns null for a non-letter", () => {
@@ -8,27 +8,28 @@ describe("getLane", () => {
     expect(getLane("1")).toBeNull();
   });
 
-  it("centers the near (foreground) edges on the key's own position", () => {
-    const pos = getKeyPosition("q")!;
+  it("centers the near (foreground) edges on the key's own slot", () => {
+    const slot = getKeySlot("q")!;
     const lane = getLane("q")!;
 
-    expect((lane.nearLeft + lane.nearRight) / 2).toBeCloseTo(pos.colFraction);
-    expect(lane.nearRight - lane.nearLeft).toBeCloseTo(KEY_WIDTH_FRACTION);
+    expect(lane.nearLeft).toBeCloseTo(slot.leftFraction);
+    expect(lane.nearRight).toBeCloseTo(slot.rightFraction);
+    expect(lane.nearYFraction).toBeCloseTo(slot.rowCenterFraction);
+    expect(lane.row).toBe(slot.row);
   });
 
   it("shrinks the far (spawn) edges toward the vanishing point", () => {
     const lane = getLane("q")!; // "q" sits near the left edge, far from center
     const farCenter = (lane.farLeft + lane.farRight) / 2;
     const nearCenter = (lane.nearLeft + lane.nearRight) / 2;
+    const nearWidth = lane.nearRight - lane.nearLeft;
 
-    expect(lane.farRight - lane.farLeft).toBeCloseTo(KEY_WIDTH_FRACTION * DISTANT_KEYBOARD_SCALE);
-    // The far center sits between the vanishing point (0.5) and the near center,
-    // much closer to 0.5.
+    expect(lane.farRight - lane.farLeft).toBeCloseTo(nearWidth * DISTANT_KEYBOARD_SCALE);
     expect(Math.abs(farCenter - 0.5)).toBeLessThan(Math.abs(nearCenter - 0.5));
   });
 
   it("keeps a key near the vanishing point roughly in place", () => {
-    // "m" (row 2) sits close to the middle of the keyboard.
+    // "m" sits close to the middle of the keyboard.
     const lane = getLane("m")!;
     const nearCenter = (lane.nearLeft + lane.nearRight) / 2;
     const farCenter = (lane.farLeft + lane.farRight) / 2;
@@ -59,5 +60,22 @@ describe("laneEdgesAt", () => {
   it("clamps past either end instead of continuing to narrow or widen", () => {
     expect(laneEdgesAt(lane, -1)).toEqual(laneEdgesAt(lane, 0));
     expect(laneEdgesAt(lane, 2)).toEqual(laneEdgesAt(lane, 1));
+  });
+});
+
+describe("laneYAt", () => {
+  it("starts at the shared spawn height and ends at the key's row", () => {
+    const lane = getLane("z")!;
+    expect(laneYAt(lane, 0)).toBeCloseTo(LANE_SPAWN_Y_FRACTION);
+    expect(laneYAt(lane, 1)).toBeCloseTo(lane.nearYFraction);
+  });
+
+  it("gives a bottom-row key a larger travel distance than a top-row key", () => {
+    const topRow = getLane("q")!;
+    const bottomRow = getLane("z")!;
+
+    const topTravel = topRow.nearYFraction - LANE_SPAWN_Y_FRACTION;
+    const bottomTravel = bottomRow.nearYFraction - LANE_SPAWN_Y_FRACTION;
+    expect(bottomTravel).toBeGreaterThan(topTravel);
   });
 });
