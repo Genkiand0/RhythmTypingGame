@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { noteProgress, isNoteVisible, FALL_DURATION_MS } from "./render";
+import { noteProgress, isNoteVisible, noteScale, noteAlpha, FALL_DURATION_MS } from "./render";
 
 describe("noteProgress", () => {
   it("is 0 when the note just spawned (one fall-duration before its time)", () => {
@@ -32,5 +32,47 @@ describe("isNoteVisible", () => {
   it("stays visible briefly after the hit line, then disappears", () => {
     expect(isNoteVisible(2100, 2000)).toBe(true);
     expect(isNoteVisible(2400, 2000)).toBe(false);
+  });
+});
+
+describe("noteScale", () => {
+  it("is smallest at spawn and largest at the hit line", () => {
+    expect(noteScale(0)).toBe(0.35);
+    expect(noteScale(1)).toBe(1.4);
+  });
+
+  it("grows faster near the hit line than far from it (perspective, not linear)", () => {
+    const earlyGrowth = noteScale(0.5) - noteScale(0);
+    const lateGrowth = noteScale(1) - noteScale(0.5);
+    expect(lateGrowth).toBeGreaterThan(earlyGrowth);
+  });
+
+  it("clamps to the max size once a note is past the hit line", () => {
+    expect(noteScale(1.5)).toBe(1.4);
+  });
+
+  it("clamps to the min size before a note has spawned", () => {
+    expect(noteScale(-1)).toBe(0.35);
+  });
+});
+
+describe("noteAlpha", () => {
+  it("is invisible before spawning", () => {
+    expect(noteAlpha(-0.1)).toBe(0);
+  });
+
+  it("fades in just after spawning", () => {
+    expect(noteAlpha(0)).toBe(0);
+    expect(noteAlpha(0.075)).toBeCloseTo(0.5);
+  });
+
+  it("is fully opaque through the middle of the fall and at the hit line", () => {
+    expect(noteAlpha(0.5)).toBe(1);
+    expect(noteAlpha(1)).toBe(1);
+  });
+
+  it("fades out after passing the hit line", () => {
+    expect(noteAlpha(1.075)).toBeCloseTo(0.5);
+    expect(noteAlpha(1.15)).toBeCloseTo(0, 5);
   });
 });
