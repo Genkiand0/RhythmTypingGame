@@ -33,13 +33,13 @@ export function isNoteVisible(
 /**
  * How big a falling note should be drawn, to fake a "coming toward the
  * camera" perspective: small and distant at progress 0, full size at the
- * hit line (progress 1). Growth is squared (slow at first, fast near the
- * end) because that's how perspective size actually behaves — apparent
- * size grows with 1/distance, not linearly with time.
+ * hit line (progress 1). Growth is linear in time — a note's speed and
+ * size both change at a constant rate, so the approach never looks like
+ * it's accelerating into a last-moment pop or stalling beforehand.
  */
 export function noteScale(progress: number, minScale = 0.35, maxScale = 1.4): number {
   const clamped = Math.min(Math.max(progress, 0), 1);
-  return minScale + (maxScale - minScale) * clamped ** 2;
+  return minScale + (maxScale - minScale) * clamped;
 }
 
 /**

@@ -34,3 +34,10 @@ export function getKeyPosition(letter: string): KeyPosition | null {
 }
 
 export const KEYBOARD_ROW_COUNT = KEY_ROWS.length;
+
+/** One color per row, so a note's color always matches the row its key is in. */
+export const ROW_COLORS: readonly string[] = ["#38bdf8", "#4ade80", "#f472b6"];
+
+export function colorForRow(row: number): string {
+  return ROW_COLORS[row] ?? "#a1a1aa";
+}

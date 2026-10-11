@@ -1,12 +1,14 @@
 // Each letter gets a trapezoidal "lane" running from a tiny, invisible
 // copy of the keyboard out at the vanishing point, down to its real key
 // in the foreground. A falling note travels along its lane's center line,
-// so it always ends up exactly on the key it needs to hit.
+// so it always ends up exactly on the key it needs to hit — both
+// horizontally AND vertically, since each row sits at its own height.
 //
-// All coordinates here are fractions of the play area's width (0..1), not
-// pixels — the canvas renderer multiplies by its own width when drawing.
+// All coordinates here are fractions of the playfield's width/height
+// (0..1), not pixels — the canvas renderer multiplies by its own
+// dimensions when drawing.
 
-import { getKeyPosition, KEY_WIDTH_FRACTION } from "./keyboard";
+import { getKeySlot, LANE_SPAWN_Y_FRACTION } from "./playfield";
 
 /** How much smaller the distant, spawn-point keyboard is than the real one. */
 export const DISTANT_KEYBOARD_SCALE = 0.22;
@@ -16,32 +18,39 @@ export interface Lane {
   farRight: number;
   nearLeft: number;
   nearRight: number;
+  /** Where this lane's key actually sits vertically. */
+  nearYFraction: number;
+  row: number;
 }
 
 /** The lane for a single letter, or null if it isn't on the keyboard. */
 export function getLane(char: string): Lane | null {
-  const pos = getKeyPosition(char);
-  if (!pos) return null;
+  const slot = getKeySlot(char);
+  if (!slot) return null;
 
-  const halfWidth = KEY_WIDTH_FRACTION / 2;
-  const nearLeft = pos.colFraction - halfWidth;
-  const nearRight = pos.colFraction + halfWidth;
+  const nearHalfWidth = (slot.rightFraction - slot.leftFraction) / 2;
 
   // The distant keyboard is the same layout, shrunk toward the center
   // (the vanishing point at 0.5) instead of toward its own left edge.
-  const farCenter = 0.5 + (pos.colFraction - 0.5) * DISTANT_KEYBOARD_SCALE;
-  const farHalfWidth = halfWidth * DISTANT_KEYBOARD_SCALE;
+  const farCenter = 0.5 + (slot.centerFraction - 0.5) * DISTANT_KEYBOARD_SCALE;
+  const farHalfWidth = nearHalfWidth * DISTANT_KEYBOARD_SCALE;
 
   return {
     farLeft: farCenter - farHalfWidth,
     farRight: farCenter + farHalfWidth,
-    nearLeft,
-    nearRight,
+    nearLeft: slot.leftFraction,
+    nearRight: slot.rightFraction,
+    nearYFraction: slot.rowCenterFraction,
+    row: slot.row,
   };
 }
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+function clamp01(t: number): number {
+  return Math.min(Math.max(t, 0), 1);
 }
 
 /**
@@ -50,9 +59,15 @@ function lerp(a: number, b: number, t: number): number {
  * keep narrowing before it spawns, or keep widening past the key.
  */
 export function laneEdgesAt(lane: Lane, t: number): { left: number; right: number } {
-  const clamped = Math.min(Math.max(t, 0), 1);
+  const clamped = clamp01(t);
   return {
     left: lerp(lane.farLeft, lane.nearLeft, clamped),
     right: lerp(lane.farRight, lane.nearRight, clamped),
   };
+}
+
+/** The lane's vertical position at the same fraction t, from spawn to the key's row. */
+export function laneYAt(lane: Lane, t: number): number {
+  const clamped = clamp01(t);
+  return lerp(LANE_SPAWN_Y_FRACTION, lane.nearYFraction, clamped);
 }

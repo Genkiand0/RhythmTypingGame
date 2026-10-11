@@ -41,10 +41,10 @@ describe("noteScale", () => {
     expect(noteScale(1)).toBe(1.4);
   });
 
-  it("grows faster near the hit line than far from it (perspective, not linear)", () => {
+  it("grows at a constant rate, so the approach never accelerates or stalls", () => {
     const earlyGrowth = noteScale(0.5) - noteScale(0);
     const lateGrowth = noteScale(1) - noteScale(0.5);
-    expect(lateGrowth).toBeGreaterThan(earlyGrowth);
+    expect(lateGrowth).toBeCloseTo(earlyGrowth);
   });
 
   it("clamps to the max size once a note is past the hit line", () => {
