@@ -2,11 +2,11 @@
 
 Rule: every phase ends with something playable on the deployed Vercel URL.
 
-## Phase 0: Setup (done in this repo)
-- Next.js (App Router) + TypeScript + Tailwind, ESLint
-- `src/game/types.ts`: Chart / Note data format
-- `src/content/stages/sample-words-en.json`: first sample stage
-- Push to GitHub, connect to Vercel
+## Phase 0: Setup — ✅ Done
+- [x] Next.js (App Router) + TypeScript + Tailwind, ESLint
+- [x] `src/game/types.ts`: Chart / Note data format
+- [x] `src/content/stages/sample-words-en.json`: first sample stage
+- [x] Push to GitHub, connect to Vercel
 
 ## Phase 1: Core engine, PC only, English (the "one fun minute")
 - Game clock based on the audio clock (not `setTimeout`)
