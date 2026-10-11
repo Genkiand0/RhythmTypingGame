@@ -9,18 +9,21 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Chart, Judgment } from "@/game/types";
 import { GameClock, audioContextTimeSource } from "@/game/clock";
 import { GameSession } from "@/game/session";
-import type { LetterNote } from "@/game/letterNotes";
 import { isNoteVisible, noteProgress, noteScale, noteAlpha } from "@/game/render";
 import { upcomingBeats } from "@/game/metronome";
-import { getKeyPosition } from "@/game/keyboard";
+import { getLane, laneEdgesAt, type Lane } from "@/game/lanes";
 import Keyboard from "./Keyboard";
 
-const CANVAS_WIDTH = 640;
-const CANVAS_HEIGHT = 360;
-const HIT_LINE_Y = CANVAS_HEIGHT - 60;
+// The keyboard (and the canvas alongside it) are sized 1.25x a plainer
+// base size, so note lanes and the on-screen keys line up pixel-for-pixel.
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 450;
+const HIT_LINE_Y = CANVAS_HEIGHT - 75;
 const METRONOME_LOOKAHEAD_MS = 150;
 const JUDGMENT_LABEL_FADE_MS = 500;
 const PRESSED_KEY_GLOW_MS = 150;
+const LANE_GLOW_FADE_MS = 250;
+const LANE_GLOW_MAX_ALPHA = 0.22;
 
 const JUDGMENT_COLORS: Record<Judgment, string> = {
   perfect: "#facc15",
@@ -40,6 +43,7 @@ export default function GamePlayer({ chart }: Props) {
   const sessionRef = useRef<GameSession | null>(null);
   const lastScheduledBeatMsRef = useRef(0);
   const pressedKeyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPressRef = useRef<{ char: string; atMs: number } | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
@@ -74,7 +78,9 @@ export default function GamePlayer({ chart }: Props) {
       if (!clock || !session) return;
 
       e.preventDefault();
-      session.typeChar(e.key, clock.nowMs());
+      const nowMs = clock.nowMs();
+      session.typeChar(e.key, nowMs);
+      lastPressRef.current = { char: e.key, atMs: nowMs };
 
       setPressedKey(e.key);
       if (pressedKeyTimeoutRef.current) clearTimeout(pressedKeyTimeoutRef.current);
@@ -92,7 +98,7 @@ export default function GamePlayer({ chart }: Props) {
         const nowMs = clock.nowMs();
         session.update(nowMs);
         scheduleMetronomeClicks(audioCtx, clock, lastScheduledBeatMsRef, nowMs);
-        draw(canvas, session, nowMs);
+        draw(canvas, session, nowMs, lastPressRef.current);
         setHud({
           score: session.tracker.score,
           combo: session.tracker.combo,
@@ -175,17 +181,50 @@ function scheduleMetronomeClicks(
   }
 }
 
-/** Where a letter should converge toward horizontally: its key, or dead center if unknown. */
-function letterTargetX(canvasWidth: number, letter: LetterNote): number {
-  const pos = getKeyPosition(letter.char);
-  return pos ? pos.colFraction * canvasWidth : canvasWidth / 2;
+/** The center of a letter's lane at some progress through its fall, in canvas-x pixels. */
+function laneCenterX(canvasWidth: number, lane: Lane | null, progress: number): number {
+  if (!lane) return canvasWidth / 2;
+  const { left, right } = laneEdgesAt(lane, progress);
+  return ((left + right) / 2) * canvasWidth;
 }
 
-function draw(canvas: HTMLCanvasElement, session: GameSession, nowMs: number): void {
+/** The whole trapezoid a letter's note travels through, top (spawn) to bottom (its key). */
+function drawLaneGlow(ctx: CanvasRenderingContext2D, canvasWidth: number, lane: Lane, alpha: number): void {
+  const far = laneEdgesAt(lane, 0);
+  const near = laneEdgesAt(lane, 1);
+
+  ctx.beginPath();
+  ctx.moveTo(far.left * canvasWidth, 0);
+  ctx.lineTo(far.right * canvasWidth, 0);
+  ctx.lineTo(near.right * canvasWidth, HIT_LINE_Y);
+  ctx.lineTo(near.left * canvasWidth, HIT_LINE_Y);
+  ctx.closePath();
+  ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+  ctx.fill();
+}
+
+function draw(
+  canvas: HTMLCanvasElement,
+  session: GameSession,
+  nowMs: number,
+  lastPress: { char: string; atMs: number } | null,
+): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Briefly glow the whole lane of whatever key was just pressed, as a
+  // subtle, translucent backdrop behind the hit line and the notes.
+  if (lastPress) {
+    const elapsed = nowMs - lastPress.atMs;
+    if (elapsed >= 0 && elapsed < LANE_GLOW_FADE_MS) {
+      const lane = getLane(lastPress.char);
+      if (lane) {
+        drawLaneGlow(ctx, canvas.width, lane, LANE_GLOW_MAX_ALPHA * (1 - elapsed / LANE_GLOW_FADE_MS));
+      }
+    }
+  }
 
   ctx.strokeStyle = "#52525b";
   ctx.beginPath();
@@ -193,7 +232,6 @@ function draw(canvas: HTMLCanvasElement, session: GameSession, nowMs: number): v
   ctx.lineTo(canvas.width, HIT_LINE_Y);
   ctx.stroke();
 
-  const vanishingX = canvas.width / 2;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
@@ -202,9 +240,9 @@ function draw(canvas: HTMLCanvasElement, session: GameSession, nowMs: number): v
 
     const progress = noteProgress(nowMs, letter.timeMs);
     const y = progress * HIT_LINE_Y;
-    // Converge from the vanishing point toward the letter's key as it
-    // approaches, like a note "homing in" on where it should be typed.
-    const x = vanishingX + (letterTargetX(canvas.width, letter) - vanishingX) * Math.min(progress, 1);
+    // Travel along the center of this letter's lane, so it always ends
+    // up exactly on its key — not just "toward the middle of the screen".
+    const x = laneCenterX(canvas.width, getLane(letter.char), progress);
     const scale = noteScale(progress);
 
     ctx.globalAlpha = noteAlpha(progress);
@@ -218,7 +256,7 @@ function draw(canvas: HTMLCanvasElement, session: GameSession, nowMs: number): v
   if (event) {
     const elapsed = nowMs - event.atMs;
     if (elapsed >= 0 && elapsed < JUDGMENT_LABEL_FADE_MS) {
-      const x = letterTargetX(canvas.width, event.letter);
+      const x = laneCenterX(canvas.width, getLane(event.letter.char), 1);
       ctx.globalAlpha = 1 - elapsed / JUDGMENT_LABEL_FADE_MS;
       ctx.font = "bold 18px sans-serif";
       ctx.fillStyle = JUDGMENT_COLORS[event.judgment];
