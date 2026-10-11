@@ -1,0 +1,15 @@
+{
+  "id": "sample-words-en",
+  "title": "Warm-up: Basic Words",
+  "mode": "words",
+  "language": "en",
+  "audioSrc": null,
+  "license": "Original content, no audio.",
+  "notes": [
+    { "timeMs": 2000, "durationMs": 0, "display": "cat", "reading": "cat" },
+    { "timeMs": 3000, "durationMs": 0, "display": "dog", "reading": "dog" },
+    { "timeMs": 4000, "durationMs": 0, "display": "sun", "reading": "sun" },
+    { "timeMs": 5000, "durationMs": 800, "display": "rain", "reading": "rain" },
+    { "timeMs": 6500, "durationMs": 0, "display": "type", "reading": "type" }
+  ]
+}
