@@ -6,16 +6,28 @@
 // just reads that state every animation frame and draws it.
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import type { Chart } from "@/game/types";
+import type { Chart, Judgment } from "@/game/types";
 import { GameClock, audioContextTimeSource } from "@/game/clock";
 import { GameSession } from "@/game/session";
-import { isNoteVisible, noteProgress } from "@/game/render";
+import type { LetterNote } from "@/game/letterNotes";
+import { isNoteVisible, noteProgress, noteScale, noteAlpha } from "@/game/render";
 import { upcomingBeats } from "@/game/metronome";
+import { getKeyPosition } from "@/game/keyboard";
+import Keyboard from "./Keyboard";
 
 const CANVAS_WIDTH = 640;
 const CANVAS_HEIGHT = 360;
 const HIT_LINE_Y = CANVAS_HEIGHT - 60;
 const METRONOME_LOOKAHEAD_MS = 150;
+const JUDGMENT_LABEL_FADE_MS = 500;
+const PRESSED_KEY_GLOW_MS = 150;
+
+const JUDGMENT_COLORS: Record<Judgment, string> = {
+  perfect: "#facc15",
+  great: "#4ade80",
+  good: "#60a5fa",
+  miss: "#f87171",
+};
 
 interface Props {
   chart: Chart;
@@ -27,12 +39,17 @@ export default function GamePlayer({ chart }: Props) {
   const clockRef = useRef<GameClock | null>(null);
   const sessionRef = useRef<GameSession | null>(null);
   const lastScheduledBeatMsRef = useRef(0);
+  const pressedKeyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isFinished, setIsFinished] = useState(false);
+  const [pressedKey, setPressedKey] = useState<string | null>(null);
   const [hud, setHud] = useState({ score: 0, combo: 0, maxCombo: 0 });
 
-  function start() {
-    const ctx = new AudioContext();
+  function startOrRestart() {
+    // Reuse an existing AudioContext across "Try Again" so we don't need
+    // another user gesture; only create one the very first time.
+    const ctx = audioCtxRef.current ?? new AudioContext();
     const clock = new GameClock(audioContextTimeSource(ctx));
     clock.start();
 
@@ -40,6 +57,8 @@ export default function GamePlayer({ chart }: Props) {
     clockRef.current = clock;
     sessionRef.current = new GameSession(chart);
     lastScheduledBeatMsRef.current = 0;
+    setIsFinished(false);
+    setHud({ score: 0, combo: 0, maxCombo: 0 });
     setIsPlaying(true);
   }
 
@@ -56,6 +75,10 @@ export default function GamePlayer({ chart }: Props) {
 
       e.preventDefault();
       session.typeChar(e.key, clock.nowMs());
+
+      setPressedKey(e.key);
+      if (pressedKeyTimeoutRef.current) clearTimeout(pressedKeyTimeoutRef.current);
+      pressedKeyTimeoutRef.current = setTimeout(() => setPressedKey(null), PRESSED_KEY_GLOW_MS);
     }
     window.addEventListener("keydown", onKeyDown);
 
@@ -63,18 +86,19 @@ export default function GamePlayer({ chart }: Props) {
       const clock = clockRef.current;
       const session = sessionRef.current;
       const canvas = canvasRef.current;
-
       const audioCtx = audioCtxRef.current;
+
       if (clock && session && canvas && audioCtx) {
         const nowMs = clock.nowMs();
         session.update(nowMs);
         scheduleMetronomeClicks(audioCtx, clock, lastScheduledBeatMsRef, nowMs);
-        draw(canvas, chart, session, nowMs);
+        draw(canvas, session, nowMs);
         setHud({
           score: session.tracker.score,
           combo: session.tracker.combo,
           maxCombo: session.tracker.maxCombo,
         });
+        if (session.isFinished) setIsFinished(true);
       }
 
       rafId = requestAnimationFrame(frame);
@@ -84,7 +108,7 @@ export default function GamePlayer({ chart }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       cancelAnimationFrame(rafId);
     };
-  }, [isPlaying, chart]);
+  }, [isPlaying]);
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -99,13 +123,27 @@ export default function GamePlayer({ chart }: Props) {
         height={CANVAS_HEIGHT}
         className="rounded-lg border border-zinc-300 bg-zinc-950 dark:border-zinc-700"
       />
+      <Keyboard activeKey={pressedKey} />
       {!isPlaying && (
         <button
-          onClick={start}
+          onClick={startOrRestart}
           className="rounded-md bg-zinc-900 px-4 py-2 text-white dark:bg-zinc-100 dark:text-zinc-900"
         >
           Start
         </button>
+      )}
+      {isPlaying && isFinished && (
+        <div className="flex flex-col items-center gap-2">
+          <p className="text-lg font-semibold">
+            Finished! Score: {hud.score} (Max Combo: {hud.maxCombo})
+          </p>
+          <button
+            onClick={startOrRestart}
+            className="rounded-md bg-zinc-900 px-4 py-2 text-white dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            Try Again
+          </button>
+        </div>
       )}
     </div>
   );
@@ -137,7 +175,13 @@ function scheduleMetronomeClicks(
   }
 }
 
-function draw(canvas: HTMLCanvasElement, chart: Chart, session: GameSession, nowMs: number): void {
+/** Where a letter should converge toward horizontally: its key, or dead center if unknown. */
+function letterTargetX(canvasWidth: number, letter: LetterNote): number {
+  const pos = getKeyPosition(letter.char);
+  return pos ? pos.colFraction * canvasWidth : canvasWidth / 2;
+}
+
+function draw(canvas: HTMLCanvasElement, session: GameSession, nowMs: number): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -149,18 +193,43 @@ function draw(canvas: HTMLCanvasElement, chart: Chart, session: GameSession, now
   ctx.lineTo(canvas.width, HIT_LINE_Y);
   ctx.stroke();
 
-  ctx.font = "24px sans-serif";
+  const vanishingX = canvas.width / 2;
   ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
-  for (const note of chart.notes) {
-    if (!isNoteVisible(nowMs, note.timeMs)) continue;
-    const y = noteProgress(nowMs, note.timeMs) * HIT_LINE_Y;
-    ctx.fillStyle = session.currentNote === note ? "#facc15" : "#a1a1aa";
-    ctx.fillText(note.display, canvas.width / 2, y);
+  for (const letter of session.letters) {
+    if (!isNoteVisible(nowMs, letter.timeMs)) continue;
+
+    const progress = noteProgress(nowMs, letter.timeMs);
+    const y = progress * HIT_LINE_Y;
+    // Converge from the vanishing point toward the letter's key as it
+    // approaches, like a note "homing in" on where it should be typed.
+    const x = vanishingX + (letterTargetX(canvas.width, letter) - vanishingX) * Math.min(progress, 1);
+    const scale = noteScale(progress);
+
+    ctx.globalAlpha = noteAlpha(progress);
+    ctx.font = `${Math.round(24 * scale)}px sans-serif`;
+    ctx.fillStyle = session.currentLetter === letter ? "#facc15" : "#a1a1aa";
+    ctx.fillText(letter.char, x, y);
+  }
+  ctx.globalAlpha = 1;
+
+  const event = session.lastEvent;
+  if (event) {
+    const elapsed = nowMs - event.atMs;
+    if (elapsed >= 0 && elapsed < JUDGMENT_LABEL_FADE_MS) {
+      const x = letterTargetX(canvas.width, event.letter);
+      ctx.globalAlpha = 1 - elapsed / JUDGMENT_LABEL_FADE_MS;
+      ctx.font = "bold 18px sans-serif";
+      ctx.fillStyle = JUDGMENT_COLORS[event.judgment];
+      ctx.fillText(event.judgment.toUpperCase(), x, HIT_LINE_Y - 28);
+      ctx.globalAlpha = 1;
+    }
   }
 
   if (session.isFinished) {
     ctx.fillStyle = "#e4e4e7";
+    ctx.font = "24px sans-serif";
     ctx.fillText("Done!", canvas.width / 2, HIT_LINE_Y / 2);
   }
 }
