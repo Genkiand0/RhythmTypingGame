@@ -80,6 +80,16 @@ export function laneYAt(lane: Lane, t: number): number {
 }
 
 /**
+ * The same vertical interpolation as laneYAt, but NOT clamped to [0, 1] —
+ * a note that hasn't been hit keeps traveling straight through the hit
+ * bar rather than stopping there, so its Y position needs to keep
+ * growing past t=1 too.
+ */
+export function laneYAtUnclamped(lane: Lane, t: number): number {
+  return lerp(LANE_SPAWN_Y_FRACTION, lane.nearYFraction, t);
+}
+
+/**
  * The lane's left/right edges at an arbitrary Y position, NOT clamped to
  * the spawn/hit-bar range. The lane is a straight line from spawn to the
  * hit bar, so that same line extrapolates cleanly past the bar — which is
