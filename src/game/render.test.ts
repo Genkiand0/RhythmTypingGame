@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { noteProgress, isNoteVisible, noteScale, noteAlpha, FALL_DURATION_MS } from "./render";
+import {
+  noteProgress,
+  isNoteVisible,
+  noteScale,
+  noteAlpha,
+  horizontalX,
+  HORIZONTAL_HIT_X_FRACTION,
+  FALL_DURATION_MS,
+} from "./render";
 
 describe("noteProgress", () => {
   it("is 0 when the note just spawned (one fall-duration before its time)", () => {
@@ -74,5 +82,21 @@ describe("noteAlpha", () => {
   it("fades out after passing the hit line", () => {
     expect(noteAlpha(1.075)).toBeCloseTo(0.5);
     expect(noteAlpha(1.15)).toBeCloseTo(0, 5);
+  });
+});
+
+describe("horizontalX", () => {
+  it("starts off-screen to the right and ends exactly at the hit bar", () => {
+    expect(horizontalX(0)).toBeGreaterThan(1);
+    expect(horizontalX(1)).toBeCloseTo(HORIZONTAL_HIT_X_FRACTION);
+  });
+
+  it("moves strictly right-to-left as progress increases", () => {
+    expect(horizontalX(0.25)).toBeGreaterThan(horizontalX(0.5));
+    expect(horizontalX(0.5)).toBeGreaterThan(horizontalX(0.75));
+  });
+
+  it("keeps moving left past the hit bar instead of stopping", () => {
+    expect(horizontalX(1.1)).toBeLessThan(HORIZONTAL_HIT_X_FRACTION);
   });
 });

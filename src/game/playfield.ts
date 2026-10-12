@@ -9,8 +9,8 @@
 
 import { getKeyPosition, KEY_WIDTH_FRACTION, KEYBOARD_ROW_COUNT } from "./keyboard";
 
-export const CANVAS_WIDTH = 800;
-export const CANVAS_HEIGHT = 450;
+export const CANVAS_WIDTH = 1000;
+export const CANVAS_HEIGHT = 560;
 
 /** The keyboard only spans this much of the playfield's width, centered — leaving margins. */
 export const KEYBOARD_WIDTH_FRACTION = 0.7;
@@ -22,6 +22,15 @@ export const KEYBOARD_AREA_TOP_FRACTION = 1 - KEYBOARD_AREA_HEIGHT_FRACTION;
 
 /** Where every lane starts, right near the top of the playfield. */
 export const LANE_SPAWN_Y_FRACTION = 0.02;
+
+/**
+ * The single shared hit-timing line every lane travels to, regardless of
+ * which row its key is in — sitting just above the keyboard itself. The
+ * keyboard below it is for identifying keys, not for timing: every lane
+ * now covers the exact same vertical distance, which keeps the perceived
+ * approach speed consistent across every key.
+ */
+export const HIT_BAR_Y_FRACTION = 0.555;
 
 export interface KeySlot {
   row: number;

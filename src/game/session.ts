@@ -10,7 +10,7 @@ import type { Chart, Judgment } from "./types";
 import { JUDGE_WINDOWS } from "./types";
 import { judge } from "./judge";
 import { ScoreTracker } from "./tracker";
-import { expandToLetterNotes, type LetterNote } from "./letterNotes";
+import { expandToLetterNotes, getWordSeparators, type LetterNote, type WordSeparator } from "./letterNotes";
 
 /** A judgment that just happened, for the UI to display at the note's spot. */
 export interface JudgmentEvent {
@@ -22,12 +22,15 @@ export interface JudgmentEvent {
 export class GameSession {
   /** Every letter of the whole chart, in order. Rendered as individual falling notes. */
   readonly letters: readonly LetterNote[];
+  /** For displays (like a scrolling word stream) that want a marker between words. */
+  readonly wordSeparators: readonly WordSeparator[];
   private index = 0;
   readonly tracker = new ScoreTracker();
   private lastEvent_: JudgmentEvent | null = null;
 
   constructor(private readonly chart: Chart) {
     this.letters = expandToLetterNotes(chart.notes);
+    this.wordSeparators = getWordSeparators(chart.notes, this.letters);
   }
 
   get currentLetter(): LetterNote | null {
