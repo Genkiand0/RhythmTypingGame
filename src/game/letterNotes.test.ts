@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { expandToLetterNotes } from "./letterNotes";
+import { expandToLetterNotes, getWordSeparators } from "./letterNotes";
 import type { Note } from "./types";
 
 function note(timeMs: number, reading: string): Note {
@@ -52,5 +52,30 @@ describe("expandToLetterNotes", () => {
 
   it("returns nothing for an empty chart", () => {
     expect(expandToLetterNotes([])).toEqual([]);
+  });
+});
+
+describe("getWordSeparators", () => {
+  it("returns one fewer separator than there are words", () => {
+    const notes = [note(1000, "cat"), note(2000, "dog"), note(3000, "sun")];
+    const letters = expandToLetterNotes(notes, 200);
+
+    expect(getWordSeparators(notes, letters)).toHaveLength(2);
+  });
+
+  it("places a separator halfway between one word's end and the next word's start", () => {
+    const notes = [note(1000, "cat"), note(2000, "dog")];
+    const letters = expandToLetterNotes(notes, 200);
+    // "dog" starts (its "d") at 2000 - 2*200 = 1600.
+    const [separator] = getWordSeparators(notes, letters);
+
+    expect(separator.timeMs).toBe((1000 + 1600) / 2);
+  });
+
+  it("returns nothing for a single-word chart", () => {
+    const notes = [note(1000, "cat")];
+    const letters = expandToLetterNotes(notes, 200);
+
+    expect(getWordSeparators(notes, letters)).toEqual([]);
   });
 });

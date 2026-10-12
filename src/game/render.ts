@@ -56,3 +56,21 @@ export function noteAlpha(progress: number): number {
   if (progress > 1) return Math.max(0, 1 - (progress - 1) / fadeOutDuration);
   return 1;
 }
+
+/**
+ * Where a horizontally-scrolling note (or word separator) sits, as a
+ * fraction of that display's own width. It shares noteProgress() with the
+ * falling-note view, so a letter crosses this stream's hit bar at exactly
+ * the same moment its perspective counterpart crosses the one above the
+ * keyboard — same progress value, same instant.
+ */
+export const HORIZONTAL_HIT_X_FRACTION = 0.25;
+const HORIZONTAL_SPAWN_X_FRACTION = 1.05;
+
+export function horizontalX(
+  progress: number,
+  hitXFraction: number = HORIZONTAL_HIT_X_FRACTION,
+  spawnXFraction: number = HORIZONTAL_SPAWN_X_FRACTION,
+): number {
+  return spawnXFraction + (hitXFraction - spawnXFraction) * progress;
+}

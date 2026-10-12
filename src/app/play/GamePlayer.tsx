@@ -1,22 +1,29 @@
 "use client";
 
-// Thin display layer: owns the canvas, the AudioContext, and the browser
-// event listeners, but all the actual game rules (judging, scoring,
-// falling-note math, metronome timing) live in src/game/. This component
-// just reads that state every animation frame and draws it.
+// Thin display layer: owns both canvases, the AudioContext, and the
+// browser event listeners, but all the actual game rules (judging,
+// scoring, falling-note math, metronome timing) live in src/game/. This
+// component just reads that state every animation frame and draws it.
+//
+// Two canvases share one game clock and session:
+//  - the perspective view: notes converge toward their key along a
+//    trapezoidal lane, crossing a shared hit bar above the keyboard.
+//  - the horizontal stream: the same letters, scrolling right to left,
+//    crossing a vertical hit bar at the same instant as their
+//    perspective counterpart (both read the same noteProgress()).
 
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { Chart, Judgment } from "@/game/types";
 import { GameClock, audioContextTimeSource } from "@/game/clock";
 import { GameSession } from "@/game/session";
-import { isNoteVisible, noteProgress, noteScale, noteAlpha } from "@/game/render";
+import { isNoteVisible, noteProgress, noteScale, noteAlpha, horizontalX } from "@/game/render";
 import { upcomingBeats } from "@/game/metronome";
-import { getLane, laneEdgesAt, laneYAt, type Lane } from "@/game/lanes";
-import { colorForRow } from "@/game/keyboard";
-import { CANVAS_WIDTH, CANVAS_HEIGHT, KEYBOARD_AREA_TOP_FRACTION } from "@/game/playfield";
-import Keyboard from "./Keyboard";
+import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, type Lane } from "@/game/lanes";
+import { KEY_ROWS, colorForRow } from "@/game/keyboard";
+import { getKeySlot, CANVAS_WIDTH, CANVAS_HEIGHT, HIT_BAR_Y_FRACTION } from "@/game/playfield";
 
-const KEYBOARD_BOUNDARY_Y = KEYBOARD_AREA_TOP_FRACTION * CANVAS_HEIGHT;
+const HORIZONTAL_CANVAS_HEIGHT = 110;
+
 const METRONOME_LOOKAHEAD_MS = 150;
 const JUDGMENT_LABEL_FADE_MS = 500;
 const PRESSED_KEY_GLOW_MS = 150;
@@ -24,6 +31,16 @@ const LANE_GLOW_FADE_MS = 250;
 const LANE_GLOW_MAX_ALPHA = 0.22;
 const INACTIVE_NOTE_ALPHA_FACTOR = 0.6;
 const LANE_GUIDE_ALPHA = 0.14;
+
+const GAP_PX = 4;
+const ROW_GAP_Y_FRACTION = 0.008;
+const HIT_BAR_HALF_HEIGHT_FRACTION = 0.01;
+const FRAME_HALF_HEIGHT_AT_UNIT_SCALE = 0.035;
+const NOTE_TEXT_COLOR = "#fafafa";
+const KEY_TEXT_COLOR = "#18181b";
+const PRESSED_KEY_COLOR = "#facc15";
+
+const ALL_LETTERS = KEY_ROWS.flatMap((row) => [...row]);
 
 const JUDGMENT_COLORS: Record<Judgment, string> = {
   perfect: "#facc15",
@@ -37,19 +54,20 @@ interface Props {
 }
 
 export default function GamePlayer({ chart }: Props) {
+  const horizontalCanvasRef = useRef<HTMLCanvasElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   const clockRef = useRef<GameClock | null>(null);
   const sessionRef = useRef<GameSession | null>(null);
   const lastScheduledBeatMsRef = useRef(0);
-  const pressedKeyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeKeyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeKeyRef = useRef<string | null>(null);
   const lastPressRef = useRef<{ char: string; atMs: number } | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [pressedKey, setPressedKey] = useState<string | null>(null);
   const [hud, setHud] = useState({ score: 0, combo: 0, maxCombo: 0 });
 
   function toggleMute() {
@@ -99,9 +117,11 @@ export default function GamePlayer({ chart }: Props) {
       session.typeChar(e.key, nowMs);
       lastPressRef.current = { char: e.key, atMs: nowMs };
 
-      setPressedKey(e.key);
-      if (pressedKeyTimeoutRef.current) clearTimeout(pressedKeyTimeoutRef.current);
-      pressedKeyTimeoutRef.current = setTimeout(() => setPressedKey(null), PRESSED_KEY_GLOW_MS);
+      activeKeyRef.current = e.key.toLowerCase();
+      if (activeKeyTimeoutRef.current) clearTimeout(activeKeyTimeoutRef.current);
+      activeKeyTimeoutRef.current = setTimeout(() => {
+        activeKeyRef.current = null;
+      }, PRESSED_KEY_GLOW_MS);
     }
     window.addEventListener("keydown", onKeyDown);
 
@@ -109,14 +129,16 @@ export default function GamePlayer({ chart }: Props) {
       const clock = clockRef.current;
       const session = sessionRef.current;
       const canvas = canvasRef.current;
+      const horizontalCanvas = horizontalCanvasRef.current;
       const audioCtx = audioCtxRef.current;
       const masterGain = masterGainRef.current;
 
-      if (clock && session && canvas && audioCtx && masterGain) {
+      if (clock && session && canvas && horizontalCanvas && audioCtx && masterGain) {
         const nowMs = clock.nowMs();
         session.update(nowMs);
         scheduleMetronomeClicks(audioCtx, masterGain, clock, lastScheduledBeatMsRef, nowMs);
-        draw(canvas, session, nowMs, lastPressRef.current);
+        drawHorizontalStream(horizontalCanvas, session, nowMs);
+        drawPerspective(canvas, session, nowMs, lastPressRef.current, activeKeyRef.current);
         setHud({
           score: session.tracker.score,
           combo: session.tracker.combo,
@@ -148,15 +170,18 @@ export default function GamePlayer({ chart }: Props) {
           {isMuted ? "Sound: Off" : "Sound: On"}
         </button>
       </div>
-      <div className="relative" style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          className="absolute inset-0 rounded-lg border border-zinc-300 bg-zinc-950 dark:border-zinc-700"
-        />
-        <Keyboard activeKey={pressedKey} />
-      </div>
+      <canvas
+        ref={horizontalCanvasRef}
+        width={CANVAS_WIDTH}
+        height={HORIZONTAL_CANVAS_HEIGHT}
+        className="rounded-lg border border-zinc-300 bg-zinc-950 dark:border-zinc-700"
+      />
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        className="rounded-lg border border-zinc-300 bg-zinc-950 dark:border-zinc-700"
+      />
       {!isPlaying && (
         <button
           onClick={startOrRestart}
@@ -209,16 +234,81 @@ function scheduleMetronomeClicks(
   }
 }
 
-/** A lane's position (center-x, y) at some progress through its fall, in canvas pixels. */
-function lanePointAt(canvasWidth: number, canvasHeight: number, lane: Lane, progress: number) {
-  const { left, right } = laneEdgesAt(lane, progress);
+interface Point {
+  x: number;
+  y: number;
+}
+interface Quad {
+  topLeft: Point;
+  topRight: Point;
+  bottomLeft: Point;
+  bottomRight: Point;
+}
+
+/** A quadrilateral spanning two Y fractions, following the lane's perspective slant. */
+function laneQuad(
+  lane: Lane,
+  topYFraction: number,
+  bottomYFraction: number,
+  canvasWidth: number,
+  canvasHeight: number,
+): Quad {
+  const top = laneEdgesAtY(lane, topYFraction);
+  const bottom = laneEdgesAtY(lane, bottomYFraction);
+  const topY = topYFraction * canvasHeight;
+  const bottomY = bottomYFraction * canvasHeight;
   return {
-    x: ((left + right) / 2) * canvasWidth,
-    y: laneYAt(lane, progress) * canvasHeight,
+    topLeft: { x: top.left * canvasWidth, y: topY },
+    topRight: { x: top.right * canvasWidth, y: topY },
+    bottomRight: { x: bottom.right * canvasWidth, y: bottomY },
+    bottomLeft: { x: bottom.left * canvasWidth, y: bottomY },
   };
 }
 
-/** The thin guide line along one edge of a lane, from its spawn point to its key. */
+function traceQuad(ctx: CanvasRenderingContext2D, quad: Quad): void {
+  ctx.beginPath();
+  ctx.moveTo(quad.topLeft.x, quad.topLeft.y);
+  ctx.lineTo(quad.topRight.x, quad.topRight.y);
+  ctx.lineTo(quad.bottomRight.x, quad.bottomRight.y);
+  ctx.lineTo(quad.bottomLeft.x, quad.bottomLeft.y);
+  ctx.closePath();
+}
+
+/** Shrinks a quad inward by a pixel gap, so adjacent keys/segments read as separate. */
+function insetQuad(quad: Quad, gapPx: number): Quad {
+  const half = gapPx / 2;
+  return {
+    topLeft: { x: quad.topLeft.x + half, y: quad.topLeft.y + half },
+    topRight: { x: quad.topRight.x - half, y: quad.topRight.y + half },
+    bottomRight: { x: quad.bottomRight.x - half, y: quad.bottomRight.y - half },
+    bottomLeft: { x: quad.bottomLeft.x + half, y: quad.bottomLeft.y - half },
+  };
+}
+
+/** The whole trapezoid a letter's note travels through, spawn to the hit bar. */
+function drawLaneGlow(
+  ctx: CanvasRenderingContext2D,
+  canvasWidth: number,
+  canvasHeight: number,
+  lane: Lane,
+  alpha: number,
+): void {
+  const far = laneEdgesAt(lane, 0);
+  const farY = laneYAt(lane, 0) * canvasHeight;
+  const near = laneEdgesAt(lane, 1);
+  const nearY = laneYAt(lane, 1) * canvasHeight;
+
+  ctx.beginPath();
+  ctx.moveTo(far.left * canvasWidth, farY);
+  ctx.lineTo(far.right * canvasWidth, farY);
+  ctx.lineTo(near.right * canvasWidth, nearY);
+  ctx.lineTo(near.left * canvasWidth, nearY);
+  ctx.closePath();
+  ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+  ctx.fill();
+}
+
+/** The thin guide line along one edge of a lane, from its spawn point to the hit bar. */
 function drawLaneGuide(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
@@ -246,34 +336,68 @@ function drawLaneGuide(
   ctx.globalAlpha = 1;
 }
 
-/** The whole trapezoid a letter's note travels through, spawn to key. */
-function drawLaneGlow(
+/** Every key, drawn as a trapezoid matching its lane's slant, below the hit bar. */
+function drawKeyboard(
   ctx: CanvasRenderingContext2D,
   canvasWidth: number,
   canvasHeight: number,
-  lane: Lane,
-  alpha: number,
+  activeKey: string | null,
 ): void {
-  const far = laneEdgesAt(lane, 0);
-  const farY = laneYAt(lane, 0) * canvasHeight;
-  const near = laneEdgesAt(lane, 1);
-  const nearY = laneYAt(lane, 1) * canvasHeight;
+  for (const letter of ALL_LETTERS) {
+    const slot = getKeySlot(letter);
+    const lane = getLane(letter);
+    if (!slot || !lane) continue;
 
-  ctx.beginPath();
-  ctx.moveTo(far.left * canvasWidth, farY);
-  ctx.lineTo(far.right * canvasWidth, farY);
-  ctx.lineTo(near.right * canvasWidth, nearY);
-  ctx.lineTo(near.left * canvasWidth, nearY);
-  ctx.closePath();
-  ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
-  ctx.fill();
+    const quad = insetQuad(
+      laneQuad(
+        lane,
+        slot.rowTopFraction + ROW_GAP_Y_FRACTION / 2,
+        slot.rowBottomFraction - ROW_GAP_Y_FRACTION / 2,
+        canvasWidth,
+        canvasHeight,
+      ),
+      GAP_PX,
+    );
+
+    const isActive = activeKey === letter;
+    traceQuad(ctx, quad);
+    ctx.fillStyle = isActive ? PRESSED_KEY_COLOR : colorForRow(slot.row);
+    ctx.globalAlpha = isActive ? 1 : 0.55;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    const centerX = (quad.topLeft.x + quad.topRight.x + quad.bottomLeft.x + quad.bottomRight.x) / 4;
+    const centerY = (quad.topLeft.y + quad.bottomLeft.y) / 2;
+    ctx.fillStyle = KEY_TEXT_COLOR;
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(letter.toUpperCase(), centerX, centerY);
+  }
 }
 
-function draw(
+/** One small, uniformly-sized segment per key, together forming the shared hit bar. */
+function drawHitBar(ctx: CanvasRenderingContext2D, canvasWidth: number, canvasHeight: number): void {
+  for (const letter of ALL_LETTERS) {
+    const lane = getLane(letter);
+    if (!lane) continue;
+
+    const topY = (HIT_BAR_Y_FRACTION - HIT_BAR_HALF_HEIGHT_FRACTION) * canvasHeight;
+    const bottomY = (HIT_BAR_Y_FRACTION + HIT_BAR_HALF_HEIGHT_FRACTION) * canvasHeight;
+    const left = lane.nearLeft * canvasWidth + GAP_PX / 2;
+    const right = lane.nearRight * canvasWidth - GAP_PX / 2;
+
+    ctx.fillStyle = colorForRow(lane.row);
+    ctx.fillRect(left, topY, right - left, bottomY - topY);
+  }
+}
+
+function drawPerspective(
   canvas: HTMLCanvasElement,
   session: GameSession,
   nowMs: number,
   lastPress: { char: string; atMs: number } | null,
+  activeKey: string | null,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -293,12 +417,14 @@ function draw(
     }
   }
 
-  // Where the falling zone ends and the embedded keyboard begins.
-  ctx.strokeStyle = "#3f3f46";
-  ctx.beginPath();
-  ctx.moveTo(0, KEYBOARD_BOUNDARY_Y);
-  ctx.lineTo(width, KEYBOARD_BOUNDARY_Y);
-  ctx.stroke();
+  for (const letter of session.letters) {
+    if (!isNoteVisible(nowMs, letter.timeMs)) continue;
+    const lane = getLane(letter.char);
+    if (lane) drawLaneGuide(ctx, width, height, lane, colorForRow(lane.row));
+  }
+
+  drawKeyboard(ctx, width, height, activeKey);
+  drawHitBar(ctx, width, height);
 
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -309,21 +435,28 @@ function draw(
     const lane = getLane(letter.char);
     if (!lane) continue;
 
-    // The lane guide shows the whole path toward the key, regardless of
-    // how far this particular note has traveled yet.
-    drawLaneGuide(ctx, width, height, lane, colorForRow(lane.row));
-
     const progress = noteProgress(nowMs, letter.timeMs);
-    const { x, y } = lanePointAt(width, height, lane, progress);
+    const yFraction = laneYAt(lane, progress);
     const scale = noteScale(progress);
     const isCurrent = session.currentLetter === letter;
+    const alpha = noteAlpha(progress) * (isCurrent ? 1 : INACTIVE_NOTE_ALPHA_FACTOR);
 
-    ctx.globalAlpha = noteAlpha(progress) * (isCurrent ? 1 : INACTIVE_NOTE_ALPHA_FACTOR);
+    const halfHeight = FRAME_HALF_HEIGHT_AT_UNIT_SCALE * scale;
+    const frame = laneQuad(lane, yFraction - halfHeight, yFraction + halfHeight, width, height);
+
+    ctx.globalAlpha = alpha;
+    traceQuad(ctx, frame);
+    ctx.strokeStyle = colorForRow(lane.row);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    const x = (frame.topLeft.x + frame.topRight.x + frame.bottomLeft.x + frame.bottomRight.x) / 4;
+    const y = yFraction * height;
     ctx.font = `${Math.round(24 * scale)}px sans-serif`;
-    ctx.fillStyle = colorForRow(lane.row);
+    ctx.fillStyle = NOTE_TEXT_COLOR;
     ctx.fillText(letter.char, x, y);
+    ctx.globalAlpha = 1;
   }
-  ctx.globalAlpha = 1;
 
   const event = session.lastEvent;
   if (event) {
@@ -331,11 +464,13 @@ function draw(
     if (elapsed >= 0 && elapsed < JUDGMENT_LABEL_FADE_MS) {
       const lane = getLane(event.letter.char);
       if (lane) {
-        const { x, y } = lanePointAt(width, height, lane, 1);
+        const { left, right } = laneEdgesAt(lane, 1);
+        const x = ((left + right) / 2) * width;
+        const y = HIT_BAR_Y_FRACTION * height;
         ctx.globalAlpha = 1 - elapsed / JUDGMENT_LABEL_FADE_MS;
         ctx.font = "bold 18px sans-serif";
         ctx.fillStyle = JUDGMENT_COLORS[event.judgment];
-        ctx.fillText(event.judgment.toUpperCase(), x, y - 26);
+        ctx.fillText(event.judgment.toUpperCase(), x, y - 30);
         ctx.globalAlpha = 1;
       }
     }
@@ -344,6 +479,51 @@ function draw(
   if (session.isFinished) {
     ctx.fillStyle = "#e4e4e7";
     ctx.font = "24px sans-serif";
-    ctx.fillText("Done!", width / 2, KEYBOARD_BOUNDARY_Y / 2);
+    ctx.fillText("Done!", width / 2, HIT_BAR_Y_FRACTION * height * 0.4);
   }
+}
+
+function drawHorizontalStream(canvas: HTMLCanvasElement, session: GameSession, nowMs: number): void {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const { width, height } = canvas;
+
+  ctx.clearRect(0, 0, width, height);
+
+  const barX = horizontalX(1) * width;
+  ctx.strokeStyle = "#f4f4f5";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(barX, 0);
+  ctx.lineTo(barX, height);
+  ctx.stroke();
+
+  for (const separator of session.wordSeparators) {
+    if (!isNoteVisible(nowMs, separator.timeMs)) continue;
+    const x = horizontalX(noteProgress(nowMs, separator.timeMs)) * width;
+    ctx.strokeStyle = "rgba(244, 244, 245, 0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, height * 0.25);
+    ctx.lineTo(x, height * 0.75);
+    ctx.stroke();
+  }
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const midY = height / 2;
+
+  for (const letter of session.letters) {
+    if (!isNoteVisible(nowMs, letter.timeMs)) continue;
+
+    const progress = noteProgress(nowMs, letter.timeMs);
+    const x = horizontalX(progress) * width;
+    const isCurrent = session.currentLetter === letter;
+
+    ctx.globalAlpha = noteAlpha(progress) * (isCurrent ? 1 : INACTIVE_NOTE_ALPHA_FACTOR);
+    ctx.font = "22px sans-serif";
+    ctx.fillStyle = NOTE_TEXT_COLOR;
+    ctx.fillText(letter.char, x, midY);
+  }
+  ctx.globalAlpha = 1;
 }

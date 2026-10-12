@@ -46,3 +46,26 @@ export function expandToLetterNotes(
 
   return letterNotes;
 }
+
+/** A subtle marker between two words, for displays that scroll letters by. */
+export interface WordSeparator {
+  /** Sits halfway between the previous word's last letter and this word's first. */
+  timeMs: number;
+}
+
+/** One separator between each pair of consecutive words — none before the first word. */
+export function getWordSeparators(
+  notes: readonly Note[],
+  letters: readonly LetterNote[],
+): WordSeparator[] {
+  const separators: WordSeparator[] = [];
+
+  for (let noteIndex = 1; noteIndex < notes.length; noteIndex++) {
+    const previousWordEndMs = notes[noteIndex - 1].timeMs;
+    const thisWordStart = letters.find((l) => l.noteIndex === noteIndex && l.letterIndex === 0);
+    const thisWordStartMs = thisWordStart ? thisWordStart.timeMs : notes[noteIndex].timeMs;
+    separators.push({ timeMs: (previousWordEndMs + thisWordStartMs) / 2 });
+  }
+
+  return separators;
+}

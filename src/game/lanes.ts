@@ -1,14 +1,16 @@
 // Each letter gets a trapezoidal "lane" running from a tiny, invisible
-// copy of the keyboard out at the vanishing point, down to its real key
-// in the foreground. A falling note travels along its lane's center line,
-// so it always ends up exactly on the key it needs to hit — both
-// horizontally AND vertically, since each row sits at its own height.
+// copy of the keyboard out at the vanishing point, down to the shared
+// hit-timing bar above the keyboard. A falling note travels along its
+// lane's center line, so it always arrives exactly where it should —
+// and because every lane ends at the same shared bar (not each key's own
+// row), every lane covers the same vertical distance, keeping approach
+// speed consistent across every key.
 //
 // All coordinates here are fractions of the playfield's width/height
 // (0..1), not pixels — the canvas renderer multiplies by its own
 // dimensions when drawing.
 
-import { getKeySlot, LANE_SPAWN_Y_FRACTION } from "./playfield";
+import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION } from "./playfield";
 
 /** How much smaller the distant, spawn-point keyboard is than the real one. */
 export const DISTANT_KEYBOARD_SCALE = 0.22;
@@ -18,7 +20,7 @@ export interface Lane {
   farRight: number;
   nearLeft: number;
   nearRight: number;
-  /** Where this lane's key actually sits vertically. */
+  /** The shared hit-bar height — the same for every lane. */
   nearYFraction: number;
   row: number;
 }
@@ -40,7 +42,7 @@ export function getLane(char: string): Lane | null {
     farRight: farCenter + farHalfWidth,
     nearLeft: slot.leftFraction,
     nearRight: slot.rightFraction,
-    nearYFraction: slot.rowCenterFraction,
+    nearYFraction: HIT_BAR_Y_FRACTION,
     row: slot.row,
   };
 }
@@ -53,10 +55,15 @@ function clamp01(t: number): number {
   return Math.min(Math.max(t, 0), 1);
 }
 
+/** Converts a Y position into the lane's own 0 (spawn) .. 1 (hit bar) parameter, unclamped. */
+function tForY(lane: Lane, yFraction: number): number {
+  return (yFraction - LANE_SPAWN_Y_FRACTION) / (lane.nearYFraction - LANE_SPAWN_Y_FRACTION);
+}
+
 /**
  * The lane's left/right edges at some fraction of the way from spawn (0)
- * to the key (1). Values outside [0, 1] are clamped — a note doesn't
- * keep narrowing before it spawns, or keep widening past the key.
+ * to the hit bar (1). Values outside [0, 1] are clamped — a note doesn't
+ * keep narrowing before it spawns, or keep widening past the bar.
  */
 export function laneEdgesAt(lane: Lane, t: number): { left: number; right: number } {
   const clamped = clamp01(t);
@@ -66,8 +73,23 @@ export function laneEdgesAt(lane: Lane, t: number): { left: number; right: numbe
   };
 }
 
-/** The lane's vertical position at the same fraction t, from spawn to the key's row. */
+/** The lane's vertical position at the same fraction t, from spawn to the hit bar. */
 export function laneYAt(lane: Lane, t: number): number {
   const clamped = clamp01(t);
   return lerp(LANE_SPAWN_Y_FRACTION, lane.nearYFraction, clamped);
+}
+
+/**
+ * The lane's left/right edges at an arbitrary Y position, NOT clamped to
+ * the spawn/hit-bar range. The lane is a straight line from spawn to the
+ * hit bar, so that same line extrapolates cleanly past the bar — which is
+ * exactly what drawing the keyboard's keys (below the bar) and a note's
+ * local frame (a small span around its current position) both need.
+ */
+export function laneEdgesAtY(lane: Lane, yFraction: number): { left: number; right: number } {
+  const t = tForY(lane, yFraction);
+  return {
+    left: lerp(lane.farLeft, lane.nearLeft, t),
+    right: lerp(lane.farRight, lane.nearRight, t),
+  };
 }

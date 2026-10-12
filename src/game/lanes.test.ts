@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getLane, laneEdgesAt, laneYAt, DISTANT_KEYBOARD_SCALE } from "./lanes";
-import { getKeySlot, LANE_SPAWN_Y_FRACTION } from "./playfield";
+import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, DISTANT_KEYBOARD_SCALE } from "./lanes";
+import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION } from "./playfield";
 
 describe("getLane", () => {
   it("returns null for a non-letter", () => {
@@ -14,8 +14,13 @@ describe("getLane", () => {
 
     expect(lane.nearLeft).toBeCloseTo(slot.leftFraction);
     expect(lane.nearRight).toBeCloseTo(slot.rightFraction);
-    expect(lane.nearYFraction).toBeCloseTo(slot.rowCenterFraction);
     expect(lane.row).toBe(slot.row);
+  });
+
+  it("ends every lane at the same shared hit-bar height, regardless of row", () => {
+    expect(getLane("q")!.nearYFraction).toBeCloseTo(HIT_BAR_Y_FRACTION); // row 0
+    expect(getLane("a")!.nearYFraction).toBeCloseTo(HIT_BAR_Y_FRACTION); // row 1
+    expect(getLane("z")!.nearYFraction).toBeCloseTo(HIT_BAR_Y_FRACTION); // row 2
   });
 
   it("shrinks the far (spawn) edges toward the vanishing point", () => {
@@ -64,18 +69,41 @@ describe("laneEdgesAt", () => {
 });
 
 describe("laneYAt", () => {
-  it("starts at the shared spawn height and ends at the key's row", () => {
+  it("starts at the shared spawn height and ends at the shared hit bar", () => {
     const lane = getLane("z")!;
     expect(laneYAt(lane, 0)).toBeCloseTo(LANE_SPAWN_Y_FRACTION);
-    expect(laneYAt(lane, 1)).toBeCloseTo(lane.nearYFraction);
+    expect(laneYAt(lane, 1)).toBeCloseTo(HIT_BAR_Y_FRACTION);
   });
 
-  it("gives a bottom-row key a larger travel distance than a top-row key", () => {
+  it("gives every lane the same travel distance, regardless of row", () => {
     const topRow = getLane("q")!;
     const bottomRow = getLane("z")!;
 
-    const topTravel = topRow.nearYFraction - LANE_SPAWN_Y_FRACTION;
-    const bottomTravel = bottomRow.nearYFraction - LANE_SPAWN_Y_FRACTION;
-    expect(bottomTravel).toBeGreaterThan(topTravel);
+    const topTravel = laneYAt(topRow, 1) - laneYAt(topRow, 0);
+    const bottomTravel = laneYAt(bottomRow, 1) - laneYAt(bottomRow, 0);
+    expect(bottomTravel).toBeCloseTo(topTravel);
+  });
+});
+
+describe("laneEdgesAtY", () => {
+  const lane = getLane("q")!;
+
+  it("matches the clamped edges at the spawn height and the hit-bar height", () => {
+    const atSpawn = laneEdgesAtY(lane, LANE_SPAWN_Y_FRACTION);
+    expect(atSpawn.left).toBeCloseTo(lane.farLeft);
+    expect(atSpawn.right).toBeCloseTo(lane.farRight);
+
+    const atBar = laneEdgesAtY(lane, HIT_BAR_Y_FRACTION);
+    expect(atBar.left).toBeCloseTo(lane.nearLeft);
+    expect(atBar.right).toBeCloseTo(lane.nearRight);
+  });
+
+  it("keeps widening past the hit bar instead of clamping, for drawing keys below it", () => {
+    const pastBarY = HIT_BAR_Y_FRACTION + (HIT_BAR_Y_FRACTION - LANE_SPAWN_Y_FRACTION) * 0.1;
+    const pastBar = laneEdgesAtY(lane, pastBarY);
+    const atBarWidth = lane.nearRight - lane.nearLeft;
+    const pastBarWidth = pastBar.right - pastBar.left;
+
+    expect(pastBarWidth).toBeGreaterThan(atBarWidth);
   });
 });
