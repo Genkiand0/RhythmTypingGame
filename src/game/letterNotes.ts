@@ -6,7 +6,7 @@
 // are spaced backward from there. That way charts don't need to change
 // to describe per-letter timing.
 
-import type { Note } from "./types";
+import type { Judgment, Note } from "./types";
 
 /** Time between consecutive letters of the same word. */
 export const LETTER_INTERVAL_MS = 220;
@@ -22,6 +22,15 @@ export interface LetterNote {
   letterIndex: number;
   /** True for a word's final letter — completing it finishes the word. */
   isLastOfWord: boolean;
+  /**
+   * Set once GameSession judges this letter (hit or auto-missed). Both
+   * displays (the perspective view and the horizontal stream) read this
+   * directly to decide how to animate the note — frozen-and-fading,
+   * bursting, or ejected — instead of each tracking their own copy.
+   */
+  judgment?: Judgment;
+  /** The game-clock time judgment happened, paired with `judgment`. */
+  judgedAtMs?: number;
 }
 
 export function expandToLetterNotes(

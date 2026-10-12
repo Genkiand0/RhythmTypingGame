@@ -29,13 +29,19 @@ describe("GameSession", () => {
 
   it("judges and advances when a letter is typed on time", () => {
     const session = new GameSession(makeChart());
-    session.typeChar("c", 560); // exact hit -> perfect
+    const hitLetter = session.currentLetter!;
+    const result = session.typeChar("c", 560); // exact hit -> perfect
 
+    expect(result).toBe("correct");
     expect(session.tracker.counts.perfect).toBe(1);
     expect(session.tracker.combo).toBe(1);
     expect(session.currentLetter?.char).toBe("a");
     expect(session.lastEvent?.judgment).toBe("perfect");
     expect(session.lastEvent?.letter.char).toBe("c");
+
+    // The letter itself remembers its judgment, for the renderer to use.
+    expect(hitLetter.judgment).toBe("perfect");
+    expect(hitLetter.judgedAtMs).toBe(560);
   });
 
   it("scores a looser judgment for a less exact hit", () => {
@@ -45,11 +51,13 @@ describe("GameSession", () => {
     expect(session.tracker.counts.great).toBe(1);
   });
 
-  it("ignores a wrong letter without advancing", () => {
+  it("reports a wrong letter without advancing or recording a judgment", () => {
     const session = new GameSession(makeChart());
-    session.typeChar("x", 560);
+    const result = session.typeChar("x", 560);
 
+    expect(result).toBe("wrong");
     expect(session.currentLetter?.char).toBe("c");
+    expect(session.currentLetter?.judgment).toBeUndefined();
     expect(session.tracker.score).toBe(0);
   });
 
@@ -67,10 +75,13 @@ describe("GameSession", () => {
 
   it("marks a letter missed once it falls outside the good window, with no keypress", () => {
     const session = new GameSession(makeChart());
+    const missedLetter = session.currentLetter!;
     session.update(760); // 200ms past "c"'s time (560ms), outside the 150ms good window
 
     expect(session.tracker.counts.miss).toBe(1);
     expect(session.currentLetter?.char).toBe("a");
+    expect(missedLetter.judgment).toBe("miss");
+    expect(missedLetter.judgedAtMs).toBe(760);
   });
 
   it("does not miss a letter that is still inside its good window", () => {
@@ -95,7 +106,8 @@ describe("GameSession", () => {
     for (const char of "catdog") session.typeChar(char, 0);
     const scoreBefore = session.tracker.score;
 
-    session.typeChar("x", 9999);
+    const result = session.typeChar("x", 9999);
+    expect(result).toBe("ignored");
     expect(session.tracker.score).toBe(scoreBefore);
   });
 });

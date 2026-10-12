@@ -5,7 +5,10 @@ import {
   noteScale,
   noteAlpha,
   horizontalX,
+  horizontalWindowRadiusFraction,
+  noteVisual,
   HORIZONTAL_HIT_X_FRACTION,
+  PASS_THROUGH_FADE_MS,
   FALL_DURATION_MS,
 } from "./render";
 
@@ -98,5 +101,74 @@ describe("horizontalX", () => {
 
   it("keeps moving left past the hit bar instead of stopping", () => {
     expect(horizontalX(1.1)).toBeLessThan(HORIZONTAL_HIT_X_FRACTION);
+  });
+});
+
+describe("horizontalWindowRadiusFraction", () => {
+  it("grows with a wider accepted timing window", () => {
+    expect(horizontalWindowRadiusFraction(150)).toBeGreaterThan(horizontalWindowRadiusFraction(50));
+  });
+
+  it("is zero for a zero-width window", () => {
+    expect(horizontalWindowRadiusFraction(0)).toBe(0);
+  });
+
+  it("is always positive, regardless of travel direction", () => {
+    expect(horizontalWindowRadiusFraction(150)).toBeGreaterThan(0);
+  });
+});
+
+describe("noteVisual", () => {
+  it("fades in while approaching and reports full alpha at the bar, unjudged", () => {
+    const early = noteVisual(0, FALL_DURATION_MS, undefined, undefined);
+    expect(early?.progress).toBe(0);
+    expect(early?.alpha).toBe(0);
+
+    const atBar = noteVisual(FALL_DURATION_MS, FALL_DURATION_MS, undefined, undefined);
+    expect(atBar?.progress).toBe(1);
+    expect(atBar?.alpha).toBe(1);
+  });
+
+  it("keeps moving and starts fading once unjudged and past the bar", () => {
+    const justPast = noteVisual(FALL_DURATION_MS + 100, FALL_DURATION_MS, undefined, undefined);
+    expect(justPast?.progress).toBeGreaterThan(1);
+    expect(justPast?.alpha).toBeCloseTo(1 - 100 / PASS_THROUGH_FADE_MS);
+  });
+
+  it("disappears once an unjudged note has fully faded past the bar", () => {
+    const longPast = noteVisual(FALL_DURATION_MS + PASS_THROUGH_FADE_MS + 1, FALL_DURATION_MS, undefined, undefined);
+    expect(longPast).toBeNull();
+  });
+
+  it("freezes a judged (non-perfect) note at its judgment-time position", () => {
+    const judgedAtMs = FALL_DURATION_MS - 40; // hit slightly early
+    const atJudgment = noteVisual(judgedAtMs, FALL_DURATION_MS, "great", judgedAtMs);
+    const muchLater = noteVisual(judgedAtMs + 200, FALL_DURATION_MS, "great", judgedAtMs);
+
+    expect(atJudgment?.progress).toBe(muchLater?.progress); // frozen, not advancing
+    expect(muchLater!.alpha).toBeLessThan(atJudgment!.alpha); // but still fading
+  });
+
+  it("disappears once a judged note has fully faded", () => {
+    const judgedAtMs = 1000;
+    const longAfter = noteVisual(judgedAtMs + PASS_THROUGH_FADE_MS + 1, 1000, "miss", judgedAtMs);
+    expect(longAfter).toBeNull();
+  });
+
+  it("is invisible long before a note has spawned", () => {
+    expect(noteVisual(-10000, 1000, undefined, undefined)).toBeNull();
+  });
+
+  it("never jumps in opacity the instant an unjudged note gets auto-marked a miss", () => {
+    const noteTimeMs = 1000;
+    const missAtMs = noteTimeMs + 150; // JUDGE_WINDOWS.good
+
+    // The frame just before the miss is recorded (still unjudged)...
+    const justBefore = noteVisual(missAtMs - 1, noteTimeMs, undefined, undefined);
+    // ...and the very next frame, now freshly judged "miss" — should read
+    // the same alpha, not snap back up to 1.
+    const justAfter = noteVisual(missAtMs, noteTimeMs, "miss", missAtMs);
+
+    expect(justAfter?.alpha).toBeCloseTo(justBefore!.alpha, 1);
   });
 });

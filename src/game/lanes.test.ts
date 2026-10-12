@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, DISTANT_KEYBOARD_SCALE } from "./lanes";
+import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, laneYAtUnclamped, DISTANT_KEYBOARD_SCALE } from "./lanes";
 import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION } from "./playfield";
 
 describe("getLane", () => {
@@ -82,6 +82,22 @@ describe("laneYAt", () => {
     const topTravel = laneYAt(topRow, 1) - laneYAt(topRow, 0);
     const bottomTravel = laneYAt(bottomRow, 1) - laneYAt(bottomRow, 0);
     expect(bottomTravel).toBeCloseTo(topTravel);
+  });
+});
+
+describe("laneYAtUnclamped", () => {
+  it("matches laneYAt within [0, 1]", () => {
+    const lane = getLane("z")!;
+    expect(laneYAtUnclamped(lane, 0)).toBeCloseTo(laneYAt(lane, 0));
+    expect(laneYAtUnclamped(lane, 0.5)).toBeCloseTo(laneYAt(lane, 0.5));
+    expect(laneYAtUnclamped(lane, 1)).toBeCloseTo(laneYAt(lane, 1));
+  });
+
+  it("keeps growing past the hit bar instead of clamping", () => {
+    const lane = getLane("z")!;
+    const atBar = laneYAtUnclamped(lane, 1);
+    const pastBar = laneYAtUnclamped(lane, 1.2);
+    expect(pastBar).toBeGreaterThan(atBar);
   });
 });
 

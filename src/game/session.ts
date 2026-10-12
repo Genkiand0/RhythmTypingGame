@@ -63,19 +63,27 @@ export class GameSession {
     }
   }
 
-  /** Call for each character the player types, with the current game-clock time. */
-  typeChar(char: string, nowMs: number): void {
-    if (this.isFinished) return;
+  /**
+   * Call for each character the player types, with the current game-clock
+   * time. Returns what happened, so the display layer can react to a
+   * wrong keypress (e.g. shaking the target letter) — gameplay itself
+   * doesn't penalize it beyond simply not advancing.
+   */
+  typeChar(char: string, nowMs: number): "correct" | "wrong" | "ignored" {
+    if (this.isFinished) return "ignored";
 
     const letter = this.currentLetter as LetterNote;
     if (char.toLowerCase() === letter.char.toLowerCase()) {
       this.finishCurrentLetter(judge(letter.timeMs, nowMs), nowMs);
+      return "correct";
     }
-    // A wrong letter is simply ignored — no penalty beyond not progressing.
+    return "wrong";
   }
 
   private finishCurrentLetter(judgment: Judgment, nowMs: number): void {
     const letter = this.currentLetter as LetterNote;
+    letter.judgment = judgment;
+    letter.judgedAtMs = nowMs;
     this.tracker.recordJudgment(judgment);
     this.lastEvent_ = { judgment, letter, atMs: nowMs };
     this.index += 1;
