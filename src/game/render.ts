@@ -3,8 +3,6 @@
 // calls noteProgress() every animation frame and multiplies by its own
 // pixel height.
 
-import type { Judgment } from "./types";
-
 /** How long (ms) a note takes to fall from the top of the screen to the hit line, at 1x speed. */
 export const FALL_DURATION_MS = 2000;
 
@@ -120,39 +118,61 @@ export function horizontalWindowRadiusFraction(
   return speedFractionPerMs * windowMs;
 }
 
-/** How long an unjudged note keeps fading after it passes the hit bar, and how long a judged (non-perfect) note fades once frozen. */
-export const PASS_THROUGH_FADE_MS = 750;
-
 export interface NoteVisual {
   /** Where to draw the note — not clamped, since it keeps moving past the bar. */
   progress: number;
   alpha: number;
 }
 
+/** How long a successfully-hit note (great/good — perfect bursts instead) fades once frozen at its judgment position. */
+export const HIT_FADE_MS = 750;
+
 /**
- * How a falling note should look right now, given whether (and when)
- * it's been judged. Notes no longer stop at the hit bar: an unjudged
- * note keeps moving at the same steady rate, and only starts fading once
- * it's past the bar with no input yet. A judged note (anything but
- * "perfect", which bursts instead of fading) freezes at the position it
- * had the instant it was judged, then fades from there.
+ * How a note you DID hit (judgment is "great" or "good") looks right
+ * now: frozen at the exact position it had the instant it was judged,
+ * fading from there. ("perfect" bursts instead — handled separately,
+ * never through this function.)
  *
- * Returns null once the note has fully faded and shouldn't be drawn.
+ * Returns null once it's fully faded and shouldn't be drawn.
  */
-export function noteVisual(
+export function hitNoteVisual(
   nowMs: number,
   noteTimeMs: number,
-  judgment: Judgment | undefined,
+  judgedAtMs: number,
+  fallDurationMs: number = FALL_DURATION_MS,
+  fadeDurationMs: number = HIT_FADE_MS,
+): NoteVisual | null {
+  const elapsed = nowMs - judgedAtMs;
+  if (elapsed < 0 || elapsed > fadeDurationMs) return null;
+  return {
+    progress: noteProgress(judgedAtMs, noteTimeMs, fallDurationMs),
+    alpha: 1 - elapsed / fadeDurationMs,
+  };
+}
+
+/** How long a note you did NOT hit keeps fading — both while it's still sailing past the bar unjudged, and once frozen after the official miss. */
+export const MISSED_FADE_MS = 1200;
+
+/**
+ * How a note you did NOT hit (no judgment yet, or already judged
+ * "miss") looks right now. It keeps moving at the same steady rate
+ * right up until the official miss is recorded (there's nothing to stop
+ * for — it was never hit), fading the whole time; once the miss lands,
+ * it freezes at the position it had at that instant and keeps fading
+ * from there. The fade clock starts the moment it passes the bar
+ * unjudged, not when the miss is officially recorded, so there's never
+ * a visible jump in opacity right as that happens.
+ *
+ * Returns null once it's fully faded and shouldn't be drawn.
+ */
+export function missedNoteVisual(
+  nowMs: number,
+  noteTimeMs: number,
   judgedAtMs: number | undefined,
   fallDurationMs: number = FALL_DURATION_MS,
-  fadeDurationMs: number = PASS_THROUGH_FADE_MS,
+  fadeDurationMs: number = MISSED_FADE_MS,
 ): NoteVisual | null {
-  if (judgment !== undefined && judgedAtMs !== undefined) {
-    // Fade continuously from whichever came first — the judgment itself
-    // (an early or on-time hit) or the moment the note passed the bar
-    // unjudged (a late hit, or an eventual miss) — so there's never a
-    // visible jump in opacity right as a miss gets officially recorded;
-    // it was already fading from the moment it passed the bar.
+  if (judgedAtMs !== undefined) {
     const fadeStartMs = Math.min(judgedAtMs, noteTimeMs);
     const elapsed = nowMs - fadeStartMs;
     if (elapsed < 0 || elapsed > fadeDurationMs) return null;
@@ -166,7 +186,7 @@ export function noteVisual(
   if (progress < 0) return null;
   if (progress <= 1) return { progress, alpha: noteAlpha(progress) };
 
-  // Past the bar, never judged: keep moving, but start fading right away.
+  // Past the bar, never judged yet: keep moving, but start fading right away.
   const elapsedSincePassingBar = nowMs - noteTimeMs;
   if (elapsedSincePassingBar > fadeDurationMs) return null;
   return { progress, alpha: Math.max(0, 1 - elapsedSincePassingBar / fadeDurationMs) };

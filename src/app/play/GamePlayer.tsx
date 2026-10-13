@@ -26,7 +26,8 @@ import {
   noteProgress,
   noteScale,
   noteAlpha,
-  noteVisual,
+  hitNoteVisual,
+  missedNoteVisual,
   horizontalX,
   horizontalWindowRadiusFraction,
   effectiveFallDurationMs,
@@ -623,7 +624,10 @@ function drawPerspective(
       continue;
     }
 
-    const visual = noteVisual(nowMs, letter.timeMs, letter.judgment, letter.judgedAtMs, fallDurationMs);
+    const visual =
+      letter.judgment !== undefined && letter.judgment !== "miss"
+        ? hitNoteVisual(nowMs, letter.timeMs, letter.judgedAtMs as number, fallDurationMs)
+        : missedNoteVisual(nowMs, letter.timeMs, letter.judgedAtMs, fallDurationMs);
     if (!visual) continue;
 
     const yFraction = laneYAtUnclamped(lane, visual.progress);
