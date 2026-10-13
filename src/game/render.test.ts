@@ -7,10 +7,39 @@ import {
   horizontalX,
   horizontalWindowRadiusFraction,
   noteVisual,
+  clampSpeedMultiplier,
+  effectiveFallDurationMs,
   HORIZONTAL_HIT_X_FRACTION,
   PASS_THROUGH_FADE_MS,
   FALL_DURATION_MS,
+  MIN_SPEED_MULTIPLIER,
+  MAX_SPEED_MULTIPLIER,
 } from "./render";
+
+describe("effectiveFallDurationMs", () => {
+  it("is the base duration at 1x speed", () => {
+    expect(effectiveFallDurationMs(1)).toBe(FALL_DURATION_MS);
+  });
+
+  it("is faster (shorter duration) above 1x", () => {
+    expect(effectiveFallDurationMs(2)).toBe(FALL_DURATION_MS / 2);
+  });
+
+  it("is slower (longer duration) below 1x", () => {
+    expect(effectiveFallDurationMs(0.5)).toBe(FALL_DURATION_MS / 0.5);
+  });
+});
+
+describe("clampSpeedMultiplier", () => {
+  it("passes values already within range through unchanged", () => {
+    expect(clampSpeedMultiplier(1)).toBe(1);
+  });
+
+  it("clamps to the min and max bounds", () => {
+    expect(clampSpeedMultiplier(0)).toBe(MIN_SPEED_MULTIPLIER);
+    expect(clampSpeedMultiplier(100)).toBe(MAX_SPEED_MULTIPLIER);
+  });
+});
 
 describe("noteProgress", () => {
   it("is 0 when the note just spawned (one fall-duration before its time)", () => {

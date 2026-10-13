@@ -5,8 +5,32 @@
 
 import type { Judgment } from "./types";
 
-/** How long (ms) a note takes to fall from the top of the screen to the hit line. */
+/** How long (ms) a note takes to fall from the top of the screen to the hit line, at 1x speed. */
 export const FALL_DURATION_MS = 2000;
+
+/** Bounds and step for the player-adjustable speed multiplier (the +/- buttons). */
+export const DEFAULT_SPEED_MULTIPLIER = 1;
+export const MIN_SPEED_MULTIPLIER = 0.5;
+export const MAX_SPEED_MULTIPLIER = 2;
+export const SPEED_MULTIPLIER_STEP = 0.25;
+
+export function clampSpeedMultiplier(value: number): number {
+  return Math.min(MAX_SPEED_MULTIPLIER, Math.max(MIN_SPEED_MULTIPLIER, value));
+}
+
+/**
+ * How long a note's fall actually takes at a given speed multiplier —
+ * a higher multiplier means less time, i.e. faster. This only changes
+ * how quickly notes visually travel (and so how much advance warning a
+ * player gets); it does not touch JUDGE_WINDOWS, so hit timing accuracy
+ * is identical at every speed.
+ */
+export function effectiveFallDurationMs(
+  speedMultiplier: number,
+  baseFallDurationMs: number = FALL_DURATION_MS,
+): number {
+  return baseFallDurationMs / speedMultiplier;
+}
 
 /**
  * 0 = note just spawned at the top of the screen.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, laneYAtUnclamped, DISTANT_KEYBOARD_SCALE } from "./lanes";
-import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION } from "./playfield";
+import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION, BOTTOM_ROW_CENTER_FRACTION } from "./playfield";
 
 describe("getLane", () => {
   it("returns null for a non-letter", () => {
@@ -98,6 +98,20 @@ describe("laneYAtUnclamped", () => {
     const atBar = laneYAtUnclamped(lane, 1);
     const pastBar = laneYAtUnclamped(lane, 1.2);
     expect(pastBar).toBeGreaterThan(atBar);
+  });
+
+  it("heads toward the bottom row, not back toward its own row, once past the bar", () => {
+    // "q" is a row-0 (top) key — well above the bottom row.
+    const lane = getLane("q")!;
+    const justPastBar = laneYAtUnclamped(lane, 1.1);
+    expect(justPastBar).toBeGreaterThan(HIT_BAR_Y_FRACTION);
+    expect(justPastBar).toBeLessThan(BOTTOM_ROW_CENTER_FRACTION);
+  });
+
+  it("eventually reaches the bottom row and stops advancing further", () => {
+    const lane = getLane("q")!;
+    const farPast = laneYAtUnclamped(lane, 10);
+    expect(farPast).toBeCloseTo(BOTTOM_ROW_CENTER_FRACTION);
   });
 });
 

@@ -29,6 +29,10 @@ import {
   noteVisual,
   horizontalX,
   horizontalWindowRadiusFraction,
+  effectiveFallDurationMs,
+  clampSpeedMultiplier,
+  DEFAULT_SPEED_MULTIPLIER,
+  SPEED_MULTIPLIER_STEP,
 } from "@/game/render";
 import { upcomingBeats } from "@/game/metronome";
 import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, laneYAtUnclamped, type Lane } from "@/game/lanes";
@@ -114,11 +118,22 @@ export default function GamePlayer({ chart }: Props) {
   /** Tracks word boundaries so a just-finished word can start its exit animation. */
   const lastActiveNoteIndexRef = useRef<number | null>(null);
   const exitingWordsRef = useRef<ExitingWord[]>([]);
+  /** Mirrors speedMultiplier for the rAF loop, which can't read React state directly. */
+  const speedMultiplierRef = useRef(DEFAULT_SPEED_MULTIPLIER);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFinished, setIsFinished] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [speedMultiplier, setSpeedMultiplier] = useState(DEFAULT_SPEED_MULTIPLIER);
   const [hud, setHud] = useState({ score: 0, combo: 0, maxCombo: 0 });
+
+  function adjustSpeed(deltaStep: number) {
+    setSpeedMultiplier((prev) => {
+      const next = clampSpeedMultiplier(prev + deltaStep);
+      speedMultiplierRef.current = next;
+      return next;
+    });
+  }
 
   function toggleMute() {
     setIsMuted((wasMuted) => {
@@ -203,6 +218,7 @@ export default function GamePlayer({ chart }: Props) {
 
       if (clock && session && canvas && horizontalCanvas && audioCtx && masterGain) {
         const nowMs = clock.nowMs();
+        const fallDurationMs = effectiveFallDurationMs(speedMultiplierRef.current);
         session.update(nowMs);
         scheduleMetronomeClicks(audioCtx, masterGain, clock, lastScheduledBeatMsRef, nowMs);
         updateExitingWords(session, nowMs, lastActiveNoteIndexRef, exitingWordsRef);
@@ -212,8 +228,9 @@ export default function GamePlayer({ chart }: Props) {
           nowMs,
           wrongPressRef.current,
           exitingWordsRef.current,
+          fallDurationMs,
         );
-        drawPerspective(canvas, session, nowMs, lastPressRef.current, activeKeysRef.current);
+        drawPerspective(canvas, session, nowMs, lastPressRef.current, activeKeysRef.current, fallDurationMs);
         setHud({
           score: session.tracker.score,
           combo: session.tracker.combo,
@@ -245,6 +262,23 @@ export default function GamePlayer({ chart }: Props) {
         >
           {isMuted ? "Sound: Off" : "Sound: On"}
         </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => adjustSpeed(-SPEED_MULTIPLIER_STEP)}
+            aria-label="Decrease note speed"
+            className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
+          >
+            −
+          </button>
+          <span className="w-16 text-center text-xs">Speed: {speedMultiplier.toFixed(2)}x</span>
+          <button
+            onClick={() => adjustSpeed(SPEED_MULTIPLIER_STEP)}
+            aria-label="Increase note speed"
+            className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
+          >
+            +
+          </button>
+        </div>
         <Link
           href="/"
           className="rounded-md border border-zinc-300 px-3 py-1 text-xs dark:border-zinc-700"
@@ -525,6 +559,7 @@ function drawPerspective(
   nowMs: number,
   lastPress: { char: string; atMs: number } | null,
   activeKeys: ReadonlySet<string>,
+  fallDurationMs: number,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -547,7 +582,7 @@ function drawPerspective(
   // Guides only make sense for a note still actively approaching the bar.
   for (const letter of session.letters) {
     if (letter.judgment !== undefined) continue;
-    const progress = noteProgress(nowMs, letter.timeMs);
+    const progress = noteProgress(nowMs, letter.timeMs, fallDurationMs);
     if (progress < 0 || progress >= 1) continue;
     const lane = getLane(letter.char);
     if (lane) drawLaneGuide(ctx, width, height, lane, colorForRow(lane.row));
@@ -566,14 +601,14 @@ function drawPerspective(
     if (letter.judgment === "perfect") {
       const elapsed = nowMs - (letter.judgedAtMs ?? nowMs);
       if (elapsed < 0 || elapsed > BURST_DURATION_MS) continue;
-      const progress = noteProgress(letter.judgedAtMs as number, letter.timeMs);
+      const progress = noteProgress(letter.judgedAtMs as number, letter.timeMs, fallDurationMs);
       const yFraction = laneYAtUnclamped(lane, progress);
       const { left, right } = laneEdgesAtY(lane, yFraction);
       drawPerfectBurst(ctx, ((left + right) / 2) * width, yFraction * height, elapsed);
       continue;
     }
 
-    const visual = noteVisual(nowMs, letter.timeMs, letter.judgment, letter.judgedAtMs);
+    const visual = noteVisual(nowMs, letter.timeMs, letter.judgment, letter.judgedAtMs, fallDurationMs);
     if (!visual) continue;
 
     const yFraction = laneYAtUnclamped(lane, visual.progress);
@@ -699,6 +734,7 @@ function drawHorizontalStream(
   nowMs: number,
   wrongPress: { letter: LetterNote; atMs: number } | null,
   exitingWords: readonly ExitingWord[],
+  fallDurationMs: number,
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -708,7 +744,7 @@ function drawHorizontalStream(
 
   const barX = horizontalX(1) * width;
   const midY = LETTER_STREAM_HEIGHT / 2;
-  const radiusPx = horizontalWindowRadiusFraction(JUDGE_WINDOWS.good) * width;
+  const radiusPx = horizontalWindowRadiusFraction(JUDGE_WINDOWS.good, fallDurationMs) * width;
 
   // Vertical hit bar, with a gap left for the timing-window circle.
   ctx.strokeStyle = "#f4f4f5";
@@ -729,8 +765,8 @@ function drawHorizontalStream(
   ctx.stroke();
 
   for (const separator of session.wordSeparators) {
-    if (!isNoteVisible(nowMs, separator.timeMs)) continue;
-    const x = horizontalX(noteProgress(nowMs, separator.timeMs)) * width;
+    if (!isNoteVisible(nowMs, separator.timeMs, fallDurationMs)) continue;
+    const x = horizontalX(noteProgress(nowMs, separator.timeMs, fallDurationMs)) * width;
     ctx.strokeStyle = "rgba(244, 244, 245, 0.25)";
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -747,8 +783,8 @@ function drawHorizontalStream(
       const elapsed = nowMs - (letter.judgedAtMs ?? nowMs);
 
       if (letter.judgment === "miss") {
-        if (!isNoteVisible(nowMs, letter.timeMs)) continue;
-        const progress = noteProgress(nowMs, letter.timeMs);
+        if (!isNoteVisible(nowMs, letter.timeMs, fallDurationMs)) continue;
+        const progress = noteProgress(nowMs, letter.timeMs, fallDurationMs);
         ctx.globalAlpha = noteAlpha(progress) * INACTIVE_NOTE_ALPHA_FACTOR;
         ctx.font = "22px sans-serif";
         ctx.fillStyle = NOTE_TEXT_COLOR;
@@ -759,7 +795,7 @@ function drawHorizontalStream(
 
       // A successful hit ejects out of the lane: a small downward arc, fading.
       if (elapsed < 0 || elapsed > EJECT_DURATION_MS) continue;
-      const progressAtHit = noteProgress(letter.judgedAtMs as number, letter.timeMs);
+      const progressAtHit = noteProgress(letter.judgedAtMs as number, letter.timeMs, fallDurationMs);
       const x = horizontalX(progressAtHit) * width;
       const t = elapsed / EJECT_DURATION_MS;
       ctx.globalAlpha = 1 - t;
@@ -770,8 +806,8 @@ function drawHorizontalStream(
       continue;
     }
 
-    if (!isNoteVisible(nowMs, letter.timeMs)) continue;
-    const progress = noteProgress(nowMs, letter.timeMs);
+    if (!isNoteVisible(nowMs, letter.timeMs, fallDurationMs)) continue;
+    const progress = noteProgress(nowMs, letter.timeMs, fallDurationMs);
     let x = horizontalX(progress) * width;
 
     if (wrongPress && session.currentLetter === letter) {
