@@ -80,28 +80,16 @@ export function laneYAt(lane: Lane, t: number): number {
 }
 
 /**
- * A point below the visible screen (Y fractions run 0..1), used only to
- * set the pass-through leg's direction/rate — never a stopping point.
- */
-const PASS_THROUGH_TARGET_Y_FRACTION = 1.5;
-
-/** How many "t" units past the bar it takes to reach that off-screen point. */
-const PASS_THROUGH_T_SPAN = 0.4;
-
-/**
  * The same vertical interpolation as laneYAt, but NOT clamped to [0, 1] —
  * a note that hasn't been hit keeps traveling straight through the hit
- * bar rather than stopping there. Past t=1 it switches to a second,
- * steeper leg aimed at a point below the bottom of the screen, and keeps
- * extrapolating past that too — there's no destination to arrive at;
- * the note only ever stops being drawn once its opacity (governed
- * separately, by elapsed time) reaches zero.
+ * bar at exactly the same rate, rather than stopping (or speeding up)
+ * there. It's one straight line the whole way, with no destination to
+ * arrive at and so nothing that ever changes its speed — only fading
+ * opacity (handled separately, by elapsed time) ever stops a note from
+ * being drawn.
  */
 export function laneYAtUnclamped(lane: Lane, t: number): number {
-  if (t <= 1) return lerp(LANE_SPAWN_Y_FRACTION, lane.nearYFraction, t);
-
-  const passThroughT = (t - 1) / PASS_THROUGH_T_SPAN;
-  return lerp(lane.nearYFraction, PASS_THROUGH_TARGET_Y_FRACTION, passThroughT);
+  return lerp(LANE_SPAWN_Y_FRACTION, lane.nearYFraction, t);
 }
 
 /**

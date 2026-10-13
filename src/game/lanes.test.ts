@@ -100,11 +100,11 @@ describe("laneYAtUnclamped", () => {
     expect(pastBar).toBeGreaterThan(atBar);
   });
 
-  it("keeps accelerating past the bar toward a point below the screen", () => {
+  it("moves at exactly the same rate before and after the bar — no speed change", () => {
     const lane = getLane("q")!;
-    const justPastBar = laneYAtUnclamped(lane, 1.1);
-    expect(justPastBar).toBeGreaterThan(HIT_BAR_Y_FRACTION);
-    expect(justPastBar).toBeLessThan(1); // still on-screen shortly after the bar
+    const rateBefore = laneYAtUnclamped(lane, 0.6) - laneYAtUnclamped(lane, 0.5);
+    const rateAfter = laneYAtUnclamped(lane, 1.6) - laneYAtUnclamped(lane, 1.5);
+    expect(rateAfter).toBeCloseTo(rateBefore);
   });
 
   it("goes below the visible screen (Y > 1) given enough time, and never stops", () => {

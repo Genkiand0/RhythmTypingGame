@@ -32,7 +32,8 @@ import {
   effectiveFallDurationMs,
   clampSpeedMultiplier,
   DEFAULT_SPEED_MULTIPLIER,
-  SPEED_MULTIPLIER_STEP,
+  SPEED_MULTIPLIER_FINE_STEP,
+  SPEED_MULTIPLIER_COARSE_STEP,
 } from "@/game/render";
 import { upcomingBeats } from "@/game/metronome";
 import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, laneYAtUnclamped, type Lane } from "@/game/lanes";
@@ -262,21 +263,35 @@ export default function GamePlayer({ chart }: Props) {
         >
           {isMuted ? "Sound: Off" : "Sound: On"}
         </button>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
-            onClick={() => adjustSpeed(-SPEED_MULTIPLIER_STEP)}
-            aria-label="Decrease note speed"
+            onClick={() => adjustSpeed(-SPEED_MULTIPLIER_COARSE_STEP)}
+            aria-label="Decrease note speed by 1.0"
             className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
           >
-            −
+            −1.0
+          </button>
+          <button
+            onClick={() => adjustSpeed(-SPEED_MULTIPLIER_FINE_STEP)}
+            aria-label="Decrease note speed by 0.1"
+            className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
+          >
+            −0.1
           </button>
           <span className="w-16 text-center text-xs">Speed: {speedMultiplier.toFixed(2)}x</span>
           <button
-            onClick={() => adjustSpeed(SPEED_MULTIPLIER_STEP)}
-            aria-label="Increase note speed"
+            onClick={() => adjustSpeed(SPEED_MULTIPLIER_FINE_STEP)}
+            aria-label="Increase note speed by 0.1"
             className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
           >
-            +
+            +0.1
+          </button>
+          <button
+            onClick={() => adjustSpeed(SPEED_MULTIPLIER_COARSE_STEP)}
+            aria-label="Increase note speed by 1.0"
+            className="rounded-md border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
+          >
+            +1.0
           </button>
         </div>
         <Link
