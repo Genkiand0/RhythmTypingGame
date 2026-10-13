@@ -10,7 +10,7 @@
 // (0..1), not pixels — the canvas renderer multiplies by its own
 // dimensions when drawing.
 
-import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION, BOTTOM_ROW_CENTER_FRACTION } from "./playfield";
+import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION } from "./playfield";
 
 /** How much smaller the distant, spawn-point keyboard is than the real one. */
 export const DISTANT_KEYBOARD_SCALE = 0.22;
@@ -80,27 +80,28 @@ export function laneYAt(lane: Lane, t: number): number {
 }
 
 /**
- * How much of the lane's own "t" scale it takes, past the hit bar, for
- * the pass-through leg to reach the bottom keyboard row. Kept short —
- * notes are usually fully faded out well before reaching it; this is
- * only about giving the brief visible portion a believable direction,
- * not about ever actually arriving there.
+ * A point below the visible screen (Y fractions run 0..1), used only to
+ * set the pass-through leg's direction/rate — never a stopping point.
  */
+const PASS_THROUGH_TARGET_Y_FRACTION = 1.5;
+
+/** How many "t" units past the bar it takes to reach that off-screen point. */
 const PASS_THROUGH_T_SPAN = 0.4;
 
 /**
  * The same vertical interpolation as laneYAt, but NOT clamped to [0, 1] —
  * a note that hasn't been hit keeps traveling straight through the hit
  * bar rather than stopping there. Past t=1 it switches to a second,
- * steeper leg heading toward the bottom keyboard row (not back toward
- * its own key's row), so it reads as diving into the keyboard rather
- * than merely drifting a little past the bar.
+ * steeper leg aimed at a point below the bottom of the screen, and keeps
+ * extrapolating past that too — there's no destination to arrive at;
+ * the note only ever stops being drawn once its opacity (governed
+ * separately, by elapsed time) reaches zero.
  */
 export function laneYAtUnclamped(lane: Lane, t: number): number {
   if (t <= 1) return lerp(LANE_SPAWN_Y_FRACTION, lane.nearYFraction, t);
 
-  const passThroughT = Math.min((t - 1) / PASS_THROUGH_T_SPAN, 1);
-  return lerp(lane.nearYFraction, BOTTOM_ROW_CENTER_FRACTION, passThroughT);
+  const passThroughT = (t - 1) / PASS_THROUGH_T_SPAN;
+  return lerp(lane.nearYFraction, PASS_THROUGH_TARGET_Y_FRACTION, passThroughT);
 }
 
 /**

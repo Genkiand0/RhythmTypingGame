@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getLane, laneEdgesAt, laneEdgesAtY, laneYAt, laneYAtUnclamped, DISTANT_KEYBOARD_SCALE } from "./lanes";
-import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION, BOTTOM_ROW_CENTER_FRACTION } from "./playfield";
+import { getKeySlot, LANE_SPAWN_Y_FRACTION, HIT_BAR_Y_FRACTION } from "./playfield";
 
 describe("getLane", () => {
   it("returns null for a non-letter", () => {
@@ -100,18 +100,23 @@ describe("laneYAtUnclamped", () => {
     expect(pastBar).toBeGreaterThan(atBar);
   });
 
-  it("heads toward the bottom row, not back toward its own row, once past the bar", () => {
-    // "q" is a row-0 (top) key — well above the bottom row.
+  it("keeps accelerating past the bar toward a point below the screen", () => {
     const lane = getLane("q")!;
     const justPastBar = laneYAtUnclamped(lane, 1.1);
     expect(justPastBar).toBeGreaterThan(HIT_BAR_Y_FRACTION);
-    expect(justPastBar).toBeLessThan(BOTTOM_ROW_CENTER_FRACTION);
+    expect(justPastBar).toBeLessThan(1); // still on-screen shortly after the bar
   });
 
-  it("eventually reaches the bottom row and stops advancing further", () => {
+  it("goes below the visible screen (Y > 1) given enough time, and never stops", () => {
     const lane = getLane("q")!;
-    const farPast = laneYAtUnclamped(lane, 10);
-    expect(farPast).toBeCloseTo(BOTTOM_ROW_CENTER_FRACTION);
+    expect(laneYAtUnclamped(lane, 2)).toBeGreaterThan(1);
+
+    // No ceiling: it keeps climbing indefinitely rather than leveling off
+    // at some destination — only fading opacity (handled elsewhere) ever
+    // stops it from being drawn.
+    const further = laneYAtUnclamped(lane, 5);
+    const muchFurther = laneYAtUnclamped(lane, 50);
+    expect(muchFurther).toBeGreaterThan(further);
   });
 });
 

@@ -10,8 +10,8 @@ export const FALL_DURATION_MS = 2000;
 
 /** Bounds and step for the player-adjustable speed multiplier (the +/- buttons). */
 export const DEFAULT_SPEED_MULTIPLIER = 1;
-export const MIN_SPEED_MULTIPLIER = 0.5;
-export const MAX_SPEED_MULTIPLIER = 2;
+export const MIN_SPEED_MULTIPLIER = 0.1;
+export const MAX_SPEED_MULTIPLIER = 10;
 export const SPEED_MULTIPLIER_STEP = 0.25;
 
 export function clampSpeedMultiplier(value: number): number {

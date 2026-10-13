@@ -32,16 +32,6 @@ export const LANE_SPAWN_Y_FRACTION = 0.02;
  */
 export const HIT_BAR_Y_FRACTION = 0.555;
 
-/**
- * The vertical center of the keyboard's last (bottom) row. Notes that
- * pass the hit bar unjudged keep heading toward this — not their own
- * key's row — purely as a visual target; the fade-out usually finishes
- * before a note actually gets there.
- */
-export const BOTTOM_ROW_CENTER_FRACTION =
-  KEYBOARD_AREA_TOP_FRACTION +
-  (KEYBOARD_ROW_COUNT - 0.5) * (KEYBOARD_AREA_HEIGHT_FRACTION / KEYBOARD_ROW_COUNT);
-
 export interface KeySlot {
   row: number;
   leftFraction: number;
