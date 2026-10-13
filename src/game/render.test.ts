@@ -171,55 +171,57 @@ describe("hitNoteVisual", () => {
 });
 
 describe("missedNoteVisual", () => {
-  it("fades in while approaching and reports full alpha at the bar, unjudged", () => {
-    const early = missedNoteVisual(0, FALL_DURATION_MS, undefined);
+  it("fades in while approaching and reports full alpha at the bar", () => {
+    const early = missedNoteVisual(0, FALL_DURATION_MS);
     expect(early?.progress).toBe(0);
     expect(early?.alpha).toBe(0);
 
-    const atBar = missedNoteVisual(FALL_DURATION_MS, FALL_DURATION_MS, undefined);
+    const atBar = missedNoteVisual(FALL_DURATION_MS, FALL_DURATION_MS);
     expect(atBar?.progress).toBe(1);
     expect(atBar?.alpha).toBe(1);
   });
 
-  it("keeps moving and starts fading once unjudged and past the bar", () => {
-    const justPast = missedNoteVisual(FALL_DURATION_MS + 100, FALL_DURATION_MS, undefined);
+  it("keeps moving and starts fading once past the bar", () => {
+    const justPast = missedNoteVisual(FALL_DURATION_MS + 100, FALL_DURATION_MS);
     expect(justPast?.progress).toBeGreaterThan(1);
     expect(justPast?.alpha).toBeCloseTo(1 - 100 / MISSED_FADE_MS);
   });
 
-  it("disappears once an unjudged note has fully faded past the bar", () => {
-    const longPast = missedNoteVisual(FALL_DURATION_MS + MISSED_FADE_MS + 1, FALL_DURATION_MS, undefined);
+  it("disappears once it has fully faded past the bar", () => {
+    const longPast = missedNoteVisual(FALL_DURATION_MS + MISSED_FADE_MS + 1, FALL_DURATION_MS);
     expect(longPast).toBeNull();
   });
 
-  it("freezes once officially judged a miss, at its judgment-time position", () => {
-    const judgedAtMs = FALL_DURATION_MS + 150; // auto-missed at the edge of JUDGE_WINDOWS.good
-    const atJudgment = missedNoteVisual(judgedAtMs, FALL_DURATION_MS, judgedAtMs);
-    const muchLater = missedNoteVisual(judgedAtMs + 200, FALL_DURATION_MS, judgedAtMs);
+  it("never stops — it keeps advancing at the same rate even well past the official miss", () => {
+    // JUDGE_WINDOWS.good (150ms) is when the miss is officially recorded,
+    // but that has no effect here: there's no judgedAtMs to freeze at.
+    const justAfterMiss = missedNoteVisual(FALL_DURATION_MS + 150, FALL_DURATION_MS);
+    const wellAfterMiss = missedNoteVisual(FALL_DURATION_MS + 400, FALL_DURATION_MS);
 
-    expect(atJudgment?.progress).toBe(muchLater?.progress); // frozen, not advancing
-    expect(muchLater!.alpha).toBeLessThan(atJudgment!.alpha); // but still fading
+    expect(wellAfterMiss!.progress).toBeGreaterThan(justAfterMiss!.progress);
+
+    // Rate is identical to the approach's rate — no slowdown or speedup.
+    const rateBefore = missedNoteVisual(600, FALL_DURATION_MS)!.progress - missedNoteVisual(500, FALL_DURATION_MS)!.progress;
+    const rateAfter = wellAfterMiss!.progress - justAfterMiss!.progress;
+    const rateAfterPerMs = rateAfter / 250;
+    expect(rateAfterPerMs).toBeCloseTo(rateBefore / 100);
   });
 
-  it("disappears once a judged miss has fully faded, using its own MISSED_FADE_MS duration", () => {
-    const judgedAtMs = 1000;
-    const longAfter = missedNoteVisual(judgedAtMs + MISSED_FADE_MS + 1, 1000, judgedAtMs);
+  it("disappears once fully faded, using MISSED_FADE_MS from when it passed the bar", () => {
+    const longAfter = missedNoteVisual(FALL_DURATION_MS + MISSED_FADE_MS + 1, FALL_DURATION_MS);
     expect(longAfter).toBeNull();
   });
 
   it("is invisible long before a note has spawned", () => {
-    expect(missedNoteVisual(-10000, 1000, undefined)).toBeNull();
+    expect(missedNoteVisual(-10000, 1000)).toBeNull();
   });
 
-  it("never jumps in opacity the instant an unjudged note gets auto-marked a miss", () => {
+  it("never jumps in opacity across the instant the miss would be officially recorded", () => {
     const noteTimeMs = 1000;
     const missAtMs = noteTimeMs + 150; // JUDGE_WINDOWS.good
 
-    // The frame just before the miss is recorded (still unjudged)...
-    const justBefore = missedNoteVisual(missAtMs - 1, noteTimeMs, undefined);
-    // ...and the very next frame, now freshly judged "miss" — should read
-    // the same alpha, not snap back up to 1.
-    const justAfter = missedNoteVisual(missAtMs, noteTimeMs, missAtMs);
+    const justBefore = missedNoteVisual(missAtMs - 1, noteTimeMs);
+    const justAfter = missedNoteVisual(missAtMs, noteTimeMs);
 
     expect(justAfter?.alpha).toBeCloseTo(justBefore!.alpha, 1);
   });

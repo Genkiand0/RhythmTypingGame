@@ -627,7 +627,7 @@ function drawPerspective(
     const visual =
       letter.judgment !== undefined && letter.judgment !== "miss"
         ? hitNoteVisual(nowMs, letter.timeMs, letter.judgedAtMs as number, fallDurationMs)
-        : missedNoteVisual(nowMs, letter.timeMs, letter.judgedAtMs, fallDurationMs);
+        : missedNoteVisual(nowMs, letter.timeMs, fallDurationMs);
     if (!visual) continue;
 
     const yFraction = laneYAtUnclamped(lane, visual.progress);
